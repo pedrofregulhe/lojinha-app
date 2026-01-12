@@ -26,9 +26,9 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
     
-    /* 1. EMPURRAR O CONTEÚDO PARA BAIXO (Resolve o corte no topo) */
+    /* Espaço no topo para não cortar o cabeçalho azul */
     .block-container { 
-        padding-top: 5rem !important; /* Aumentei de 1rem para 5rem */
+        padding-top: 5rem !important; 
     }
     
     .stApp { background-color: #f4f8fb; }
@@ -63,33 +63,27 @@ st.markdown("""
     }
     div.stButton > button:hover { background-color: #004080; color: white; }
     
-    /* 2. ALINHAMENTO DO BOTÃO SAIR */
+    /* CORREÇÃO DO BOTÃO SAIR (Encerrar Sessão) */
     .btn-sair {
-        margin-top: 2px; /* Pequeno ajuste fino */
+        margin-top: -5px; /* Puxa o botão para cima para alinhar com o Expander */
     }
     .btn-sair > button {
         background-color: #ff4b4b !important;
-        height: 44px !important; /* Mesma altura visual do Expander fechado */
-        line-height: 1.2;
+        height: 46px !important; /* Altura exata para bater com a caixa de senha */
+        font-size: 14px;
     }
     .btn-sair > button:hover { background-color: #c93030 !important; }
 
-    /* Ajuste do Expander (Senha) */
+    /* Ajuste do Expander (Caixa de Senha) */
     [data-testid="stExpander"] {
         background-color: white;
         border-radius: 8px;
         border: 1px solid #e0e0e0;
-        box-shadow: none; /* Remove sombra padrão para alinhar com flat design */
-    }
-    /* Força o cabeçalho do expander a ter uma altura fixa parecida com o botão */
-    [data-testid="stExpander"] summary {
-        height: 44px !important; 
-        min-height: 44px !important;
-        padding-top: 0px;
-        padding-bottom: 0px;
-        align-items: center;
+        box-shadow: none;
+        margin-bottom: 0px !important; /* Remove margem extra */
     }
     
+    /* Centraliza a Logo */
     .logo-container img {
         max-width: 100%;
         height: auto;
@@ -202,10 +196,9 @@ def tela_principal():
     saldo = st.session_state['saldo_atual']
     
     # --- LAYOUT DO TOPO ---
-    # Coluna maior para o texto azul, Coluna ajustada para logo+botões
-    col_info, col_acoes = st.columns([3, 1.3])
+    # Coluna 1 (Texto) | Coluna 2 (Logo + Botões)
+    col_info, col_acoes = st.columns([3, 1.4])
     
-    # Coluna 1: Bloco Azul
     with col_info:
         st.markdown(f"""
             <div class="header-style">
@@ -224,9 +217,8 @@ def tela_principal():
             </div>
         """, unsafe_allow_html=True)
 
-    # Coluna 2: Logo e Botões
     with col_acoes:
-        # 1. Logo (Container com margem)
+        # 1. Logo
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(
             f'<div class="logo-container" style="text-align:center; margin-bottom: 15px; padding-top: 5px;">'
@@ -235,9 +227,9 @@ def tela_principal():
             unsafe_allow_html=True
         )
         
-        # 2. Botões lado a lado
-        # Ajuste fino das colunas internas para alinhamento
-        c_senha, c_sair = st.columns([1.6, 0.8]) 
+        # 2. Botões lado a lado (Senha e Sair)
+        # Dividi igual [1, 1] para o texto longo caber bem
+        c_senha, c_sair = st.columns([1, 1]) 
         
         with c_senha:
             with st.expander("🔐 Alterar Senha"):
@@ -254,9 +246,8 @@ def tela_principal():
                     else: st.warning("Verifique.")
         
         with c_sair:
-            # Botão Sair - Classe CSS para alinhar verticalmente
             st.markdown('<div class="btn-sair">', unsafe_allow_html=True)
-            if st.button("Sair"):
+            if st.button("Encerrar Sessão"):
                 st.session_state['logado'] = False
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
