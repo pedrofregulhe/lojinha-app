@@ -31,16 +31,15 @@ def gerar_hash(senha):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(senha.encode('utf-8'), salt).decode('utf-8')
 
-# --- ESTILIZAÇÃO GLOBAL (CSS) ---
+# --- ESTILIZAÇÃO ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; color: #333; }
+    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
     
     header { visibility: hidden; }
     .stDeployButton { display: none; }
     
-    /* --- GRADIENTE DE FUNDO GERAL (AGORA EM TUDO) --- */
     .stApp {
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
         background-size: 400% 400%;
@@ -52,67 +51,20 @@ st.markdown("""
         100% { background-position: 0% 50%; }
     }
     
+    .main-app-bg { background-color: #f4f8fb !important; background-image: none !important; }
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
 
-    /* --- TÉCNICA DE CARDS FLUTUANTES PARA LEGIBILIDADE --- */
-
-    /* 1. Card de Login (Já estava ok) */
     [data-testid="stForm"] {
         background-color: #ffffff; padding: 40px; border-radius: 20px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: none;
-    }
-
-    /* 2. Conteúdo das Abas (Catálogo, Admin, etc) */
-    /* Cria um fundo branco para o conteúdo dentro das tabs não ficar ilegível */
-    [data-testid="stTabs"] > div:nth-child(2) {
-        background-color: rgba(255, 255, 255, 0.95); /* Branco com leve transparência */
-        padding: 25px;
-        border-radius: 15px;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        margin-top: 10px;
-    }
-    /* Cor do texto das abas não selecionadas para branco para contrastar com o gradiente */
-    [data-testid="stTabs"] button[aria-selected="false"] {
-        color: rgba(255,255,255,0.8) !important;
-    }
-    [data-testid="stTabs"] button[aria-selected="true"] {
-        color: white !important;
-        border-bottom-color: white !important;
-    }
-
-    /* 3. Cards de Produto Individuais */
-    /* Força o fundo branco nos cards do catálogo */
-    [data-testid="stVerticalBlockBorderWrapper"] > div {
-        background-color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-        transition: transform 0.2s;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] > div:hover {
-         transform: translateY(-3px);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none;
     }
     
-    /* 4. Dataframes (Tabelas Admin) */
-    [data-testid="stDataFrame"] {
-        background-color: white;
-        padding: 10px;
-        border-radius: 10px;
-    }
-
-    /* --- OUTROS ESTILOS --- */
     .stTextInput input { background-color: #f7f9fc; color: #333; border: 1px solid #e0e0e0; }
 
-    /* Header Interno (Bloco Azul - mantive um azul sólido/gradiente sutil para destacar) */
     .header-style {
-        background: linear-gradient(90deg, #003366 0%, #005c97 100%); /* Azul um pouco mais escuro para diferenciar do fundo */
+        background: linear-gradient(90deg, #005c97 0%, #363795 100%);
         padding: 20px 25px; border-radius: 15px; color: white;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; justify-content: center; height: 100%;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    /* Garante que o texto dentro do header azul continue branco */
-    .header-style h2, .header-style p, .header-style span {
-        color: white !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%;
     }
 
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; width: 100% !important; border-radius: 10px; }
@@ -128,9 +80,6 @@ st.markdown("""
     div.stButton > button[kind="primary"]:hover { background-color: #c93030 !important; }
     
     .logo-container img { max-width: 100%; height: auto; }
-    
-    /* Ajuste para textos gerais ficarem escuros dentro dos cards brancos */
-    p, h1, h2, h3, label { color: #333; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -199,14 +148,14 @@ def processar_resgate(usuario_cod, item_nome, custo):
         if 'usuario_str' in df_u.columns: df_u = df_u.drop(columns=['usuario_str'])
         conn.update(worksheet="usuarios", data=df_u)
         
-        # --- ATUALIZAÇÃO DO STATUS ---
+        # --- ATUALIZAÇÃO DO STATUS (AQUI MUDOU) ---
         df_v = carregar_dados("vendas")
         nova = pd.DataFrame([{
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"), 
             "Usuario": usuario_cod, 
             "Item": item_nome, 
             "Valor": custo,
-            "Status": "Pendente"
+            "Status": "Pendente"  # <--- Status Inicial
         }])
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
         
@@ -260,51 +209,79 @@ def tela_admin():
     st.subheader("🛠️ Painel Super Admin")
     t1, t2, t3, t4 = st.tabs(["📊 Dashboard & Entregas", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
     
+    # --- ABA 1: DASHBOARD COM STATUS EDITÁVEL ---
     with t1:
-        st.info("Gerencie o status dos pedidos.")
+        st.info("Aqui você pode mudar o status dos pedidos para 'Entregue'.")
         df_v = carregar_dados("vendas")
+        
         if not df_v.empty:
+            # Métricas
             c1, c2 = st.columns(2)
             c1.metric("Total Pontos", f"{df_v['Valor'].sum():,.0f}")
             c2.metric("Total Pedidos", len(df_v))
+            
             st.markdown("---")
-            if "Status" not in df_v.columns: df_v["Status"] = "Pendente"
+            st.markdown("### 🚚 Gerenciar Pedidos")
+            
+            # Garante que a coluna Status existe
+            if "Status" not in df_v.columns:
+                df_v["Status"] = "Pendente"
+
+            # Tabela Editável
             edited_df = st.data_editor(
                 df_v,
                 column_config={
-                    "Status": st.column_config.SelectboxColumn("Status", options=["Pendente", "Em Separação", "Entregue", "Cancelado"], required=True, width="medium"),
+                    "Status": st.column_config.SelectboxColumn(
+                        "Status do Pedido",
+                        help="Atualize o status da entrega",
+                        width="medium",
+                        options=["Pendente", "Em Separação", "Entregue", "Cancelado"],
+                        required=True,
+                    ),
                     "Data": st.column_config.TextColumn("Data", disabled=True),
                     "Usuario": st.column_config.TextColumn("Usuário", disabled=True),
                     "Item": st.column_config.TextColumn("Item", disabled=True),
                     "Valor": st.column_config.NumberColumn("Valor", disabled=True),
                 },
-                use_container_width=True, hide_index=True, key="editor_vendas"
+                use_container_width=True,
+                hide_index=True,
+                key="editor_vendas"
             )
-            if st.button("💾 Salvar Status", type="primary"):
+            
+            if st.button("💾 Salvar Alterações de Status", type="primary"):
                 salvar_alteracoes_admin("vendas", edited_df)
-                st.success("Atualizado!"); time.sleep(1); st.rerun()
-        else: st.info("Sem vendas.")
+                st.success("Status atualizados com sucesso!")
+                time.sleep(1)
+                st.rerun()
+        else:
+            st.info("Nenhuma venda realizada.")
+
     with t2:
-        st.info("Edição de Usuários:")
+        st.info("Edite os usuários abaixo:")
         df_u = carregar_dados("usuarios")
         df_edit = st.data_editor(df_u, use_container_width=True, num_rows="dynamic")
         if st.button("Salvar Usuários", type="primary"):
-            salvar_alteracoes_admin("usuarios", df_edit); st.success("Salvo!"); time.sleep(1); st.rerun()
+            salvar_alteracoes_admin("usuarios", df_edit)
+            st.success("Salvo!"); time.sleep(1); st.rerun()
     with t3:
-        st.info("Edição de Prêmios:")
+        st.info("Gerencie os prêmios:")
         df_p = carregar_dados("premios")
         df_p_edit = st.data_editor(df_p, use_container_width=True, num_rows="dynamic")
         if st.button("Salvar Prêmios", type="primary"):
-            salvar_alteracoes_admin("premios", df_p_edit); st.success("Salvo!"); time.sleep(1); st.rerun()
+            salvar_alteracoes_admin("premios", df_p_edit)
+            st.success("Salvo!"); time.sleep(1); st.rerun()
     with t4:
-        st.markdown("### 🔐 Gerador de Hash")
+        st.markdown("### 🔐 Gerador de Hash Seguro")
+        st.info("Ferramenta para criar senhas seguras.")
         col_a, col_b = st.columns([1, 2])
         with col_a: senha_para_hash = st.text_input("Senha normal:", placeholder="Ex: culligan2026")
         with col_b:
-            if senha_para_hash: st.code(gerar_hash(senha_para_hash), language="text")
+            if senha_para_hash:
+                st.markdown("**Copie o código:**")
+                st.code(gerar_hash(senha_para_hash), language="text")
 
 def tela_principal():
-    # REMOVIDA A LINHA QUE DESLIGAVA O GRADIENTE
+    st.markdown('<style>.stApp {background: #f4f8fb; animation: none;}</style>', unsafe_allow_html=True)
     u_cod = st.session_state['usuario_cod']
     u_nome = st.session_state['usuario_nome']
     tipo = st.session_state['tipo_usuario']
@@ -316,7 +293,7 @@ def tela_principal():
             <div class="header-style">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="flex: 1; padding-right: 20px;">
-                        <h2 style="margin:0;">Olá, {u_nome}! 👋</h2>
+                        <h2 style="margin:0; color: white; font-size: 24px;">Olá, {u_nome}! 👋</h2>
                         <p style="margin-top: 8px; opacity:0.9; font-size: 15px;">Bem Vindo (a) a Loja Culligan.</p>
                     </div>
                     <div style="text-align: right; min-width: 110px;">
@@ -362,14 +339,20 @@ def tela_principal():
                             else: st.button(f"Falta {row['custo']-saldo:.0f}", disabled=True, key=f"d_{row['id']}", use_container_width=True)
             else: st.warning("Vazio.")
         with t2:
+            # --- MOSTRAR STATUS PARA O USUÁRIO ---
             df_v = carregar_dados("vendas")
             if not df_v.empty:
                 df_v['Usuario'] = df_v['Usuario'].astype(str)
-                meus = df_v[df_v['Usuario']==str(u_cod)]
-                cols_show = ['Data','Item','Valor']
-                if 'Status' in meus.columns: cols_show.append('Status')
-                st.dataframe(meus[cols_show], use_container_width=True, hide_index=True)
-            else: st.info("Sem resgates.")
+                meus_resgates = df_v[df_v['Usuario']==str(u_cod)]
+                
+                # Garante que coluna Status aparece
+                colunas_mostrar = ['Data','Item','Valor']
+                if 'Status' in meus_resgates.columns:
+                    colunas_mostrar.append('Status')
+                
+                st.dataframe(meus_resgates[colunas_mostrar], use_container_width=True, hide_index=True)
+            else:
+                st.info("Você ainda não fez resgates.")
 
 if __name__ == "__main__":
     if st.session_state['logado']: tela_principal()
