@@ -3,22 +3,21 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import time
-import base64 # <--- Nova biblioteca para tratar a imagem local
+import base64
 
 # --- CONFIGURAÇÕES GERAIS ---
 st.set_page_config(page_title="Portal de Prêmios", layout="wide", page_icon="🎁")
 
-# NOME DO ARQUIVO DA SUA LOGO (Deve estar na mesma pasta do script)
+# NOME DO ARQUIVO DA SUA LOGO
 ARQUIVO_LOGO = "logo.png"
 
-# --- FUNÇÃO AUXILIAR PARA IMAGEM LOCAL (Resolve o problema do desfoque) ---
+# --- FUNÇÃO AUXILIAR PARA IMAGEM LOCAL ---
 def carregar_logo_base64(caminho_arquivo):
     try:
         with open(caminho_arquivo, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode()
         return f"data:image/png;base64,{encoded_string}"
     except Exception:
-        # Se não achar a imagem, retorna um link genérico
         return "https://cdn-icons-png.flaticon.com/512/6213/6213388.png"
 
 # --- ESTILIZAÇÃO (CSS) ---
@@ -26,22 +25,28 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
+    
+    /* Remove espaço extra do topo padrão do Streamlit */
+    .block-container {
+        padding-top: 2rem;
+    }
+
     .stApp { background-color: #f4f8fb; }
 
-    /* Header Degradê */
+    /* Header Degradê (Bloco Azul) */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
-        padding: 25px;
+        padding: 30px;
         border-radius: 15px;
         color: white;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        margin-bottom: 25px;
-        display: flex; justify-content: space-between; align-items: center;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
 
-    /* --- ESTILO DOS PRODUTOS APENAS --- */
-    /* Isso garante que só as imagens "normais" do Streamlit sejam afetadas, 
-       a logo via HTML ficará protegida */
+    /* Estilo dos Produtos */
     [data-testid="stImage"] img {
         height: 180px !important;
         object-fit: contain !important;
@@ -51,10 +56,18 @@ st.markdown("""
 
     /* Botões */
     div.stButton > button {
-        background-color: #0066cc; color: white; border-radius: 20px; border: none;
+        background-color: #0066cc; color: white; border-radius: 10px; border: none;
         padding: 10px 20px; font-weight: bold; width: 100%; transition: 0.3s;
     }
     div.stButton > button:hover { background-color: #004080; color: white; }
+    
+    /* Botão Sair (Vermelho discreto) */
+    .btn-sair > button {
+        background-color: #ff4b4b !important;
+    }
+    .btn-sair > button:hover {
+        background-color: #c93030 !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -139,15 +152,8 @@ def tela_login():
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
         with st.container(border=True):
-            # --- LOGO VIA HTML (PARA NÃO FICAR EMBASSADA) ---
             img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
-            st.markdown(
-                f'<div style="text-align: center;">'
-                f'<img src="{img_b64}" style="width: 180px; max-width: 100%; height: auto;">'
-                f'</div>', 
-                unsafe_allow_html=True
-            )
-            # ------------------------------------------------
+            st.markdown(f'<div style="text-align: center;"><img src="{img_b64}" style="width: 180px;"></div>', unsafe_allow_html=True)
             st.markdown("<h3 style='text-align: center; color: #333;'>Portal de Prêmios</h3>", unsafe_allow_html=True)
             with st.form("frm_login"):
                 u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
@@ -169,25 +175,56 @@ def tela_principal():
     tipo = st.session_state['tipo_usuario']
     saldo = st.session_state['saldo_atual']
     
-    st.markdown(f"""
-        <div class="header-style">
-            <div><h2 style="margin:0; color: white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9;">Clube de Vantagens</p></div>
-            <div style="text-align: right;"><span style="font-size:14px;">SALDO ATUAL</span><br><span style="font-size:32px; font-weight:bold;">{saldo:,.0f}</span> pts</div>
-        </div>
-    """, unsafe_allow_html=True)
+    # --- LAYOUT DO TOPO (SEM SIDEBAR) ---
+    col_info, col_acoes = st.columns([3, 1])
+    
+    # Coluna 1: Bloco Azul de Informações
+    with col_info:
+        st.markdown(f"""
+            <div class="header-style">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2 style="margin:0; color: white;">Olá, {u_nome}! 👋</h2>
+                        <p style="margin:0; opacity:0.9;">Clube de Vantagens</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="font-size:14px; opacity:0.8;">SEU SALDO</span><br>
+                        <span style="font-size:36px; font-weight:bold;">{saldo:,.0f}</span> <span style="font-size:20px;">pts</span>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
-    with st.sidebar:
-        # LOGO NA LATERAL TAMBÉM VIA HTML
+    # Coluna 2: Logo e Botões (Alterar Senha e Sair)
+    with col_acoes:
+        # 1. Logo
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
-        st.markdown(f'<div style="text-align:center; margin-bottom:20px;"><img src="{img_b64}" style="width: 120px;"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align:center; margin-bottom: 10px;"><img src="{img_b64}" style="width: 120px;"></div>', unsafe_allow_html=True)
         
-        st.markdown(f"**Usuário:** {u_cod}")
-        with st.expander("🔐 Alterar Senha"):
-            n_senha = st.text_input("Nova Senha", type="password")
-            if st.button("Salvar") and alterar_senha(u_cod, n_senha):
-                st.success("Sucesso!"); time.sleep(1); st.session_state['logado']=False; st.rerun()
-        if st.button("SAIR", type="primary"): st.session_state['logado']=False; st.rerun()
+        # 2. Alterar Senha (Expander)
+        with st.expander("🔐 Senha"):
+            nova_s = st.text_input("Nova senha", type="password", key="ns")
+            conf_s = st.text_input("Confirmar", type="password", key="cs")
+            if st.button("Salvar"):
+                if nova_s == conf_s and len(nova_s) > 0:
+                    if alterar_senha(u_cod, nova_s):
+                        st.success("Alterada!")
+                        time.sleep(1)
+                        st.session_state['logado'] = False
+                        st.rerun()
+                    else: st.error("Erro.")
+                else: st.warning("Senhas não batem.")
+        
+        # 3. Botão Sair
+        st.markdown('<div class="btn-sair">', unsafe_allow_html=True)
+        if st.button("Sair do Sistema"):
+            st.session_state['logado'] = False
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
+    st.divider()
+
+    # --- ÁREA DE CONTEÚDO ---
     if tipo == 'admin':
         st.subheader("Painel Admin")
         df_v = carregar_dados("vendas")
