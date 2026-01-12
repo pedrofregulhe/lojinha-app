@@ -4,3 +4,4 @@ gspread
 oauth2client
 st-gsheets-connection
 plotly
+bcrypt
