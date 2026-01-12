@@ -26,11 +26,7 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
     
-    /* Espaço no topo para não cortar o cabeçalho azul */
-    .block-container { 
-        padding-top: 5rem !important; 
-    }
-    
+    .block-container { padding-top: 5rem !important; }
     .stApp { background-color: #f4f8fb; }
 
     /* Header Degradê (Bloco Azul) */
@@ -54,36 +50,27 @@ st.markdown("""
         border-radius: 10px;
     }
 
-    /* Botões Padrão */
+    /* Botões Gerais (Azul Padrão) */
     div.stButton > button {
         background-color: #0066cc; color: white; border-radius: 8px; border: none;
         padding: 0px 10px;
-        height: 40px; 
+        height: 45px; /* Altura fixa para alinhar tudo */
         font-weight: bold; width: 100%; transition: 0.3s;
     }
     div.stButton > button:hover { background-color: #004080; color: white; }
     
-    /* CORREÇÃO DO BOTÃO SAIR (Encerrar Sessão) */
-    .btn-sair {
-        margin-top: -5px; /* Puxa o botão para cima para alinhar com o Expander */
-    }
+    /* Botão Sair (Vermelho) */
+    /* Usamos uma classe container para garantir que só este botão fique vermelho */
     .btn-sair > button {
         background-color: #ff4b4b !important;
-        height: 46px !important; /* Altura exata para bater com a caixa de senha */
-        font-size: 14px;
     }
     .btn-sair > button:hover { background-color: #c93030 !important; }
 
-    /* Ajuste do Expander (Caixa de Senha) */
-    [data-testid="stExpander"] {
-        background-color: white;
-        border-radius: 8px;
-        border: 1px solid #e0e0e0;
-        box-shadow: none;
-        margin-bottom: 0px !important; /* Remove margem extra */
+    /* Botão Alterar Senha (Laranja/Amarelo ou Azul Escuro - vamos manter azul mas com icone) */
+    .btn-senha > button {
+        border: 1px solid #0066cc;
     }
-    
-    /* Centraliza a Logo */
+
     .logo-container img {
         max-width: 100%;
         height: auto;
@@ -132,7 +119,7 @@ def validar_login(user_input, pass_input):
     except Exception as e:
         st.error(f"Erro login: {e}"); return False, None, None, 0
 
-def alterar_senha(usuario_cod, nova_senha):
+def alterar_senha_banco(usuario_cod, nova_senha):
     try:
         df = carregar_dados("usuarios")
         df['usuario_str'] = df['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
@@ -166,6 +153,26 @@ def processar_resgate(usuario_cod, item_nome, custo):
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
 
+# --- COMPONENTE: MODAL DE SENHA (POP-UP) ---
+@st.dialog("🔐 Alterar Senha")
+def abrir_modal_senha(usuario_cod):
+    st.write("Digite sua nova senha abaixo:")
+    nova = st.text_input("Nova Senha", type="password")
+    conf = st.text_input("Confirmar Senha", type="password")
+    
+    if st.button("Confirmar Alteração", key="btn_confirm_modal"):
+        if nova == conf and len(nova) > 0:
+            with st.spinner("Atualizando..."):
+                if alterar_senha_banco(usuario_cod, nova):
+                    st.success("Senha alterada com sucesso!")
+                    time.sleep(1.5)
+                    st.session_state['logado'] = False
+                    st.rerun()
+                else:
+                    st.error("Erro ao conectar com o banco de dados.")
+        else:
+            st.warning("As senhas não coincidem ou estão vazias.")
+
 # --- TELAS ---
 def tela_login():
     st.markdown("<br>", unsafe_allow_html=True)
@@ -196,9 +203,9 @@ def tela_principal():
     saldo = st.session_state['saldo_atual']
     
     # --- LAYOUT DO TOPO ---
-    # Coluna 1 (Texto) | Coluna 2 (Logo + Botões)
     col_info, col_acoes = st.columns([3, 1.4])
     
+    # Bloco Azul
     with col_info:
         st.markdown(f"""
             <div class="header-style">
@@ -217,8 +224,9 @@ def tela_principal():
             </div>
         """, unsafe_allow_html=True)
 
+    # Logo + Botões Alinhados
     with col_acoes:
-        # 1. Logo
+        # Logo
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(
             f'<div class="logo-container" style="text-align:center; margin-bottom: 15px; padding-top: 5px;">'
@@ -227,25 +235,16 @@ def tela_principal():
             unsafe_allow_html=True
         )
         
-        # 2. Botões lado a lado (Senha e Sair)
-        # Dividi igual [1, 1] para o texto longo caber bem
+        # Botões lado a lado (Agora são dois botões reais, alinhamento perfeito)
         c_senha, c_sair = st.columns([1, 1]) 
         
         with c_senha:
-            with st.expander("🔐 Alterar Senha"):
-                nova_s = st.text_input("Nova senha", type="password", key="ns", label_visibility="collapsed", placeholder="Nova Senha")
-                conf_s = st.text_input("Confirmar", type="password", key="cs", label_visibility="collapsed", placeholder="Confirmar")
-                if st.button("Salvar", key="btn_salvar_senha"):
-                    if nova_s == conf_s and len(nova_s) > 0:
-                        if alterar_senha(u_cod, nova_s):
-                            st.success("Alterada!")
-                            time.sleep(1)
-                            st.session_state['logado'] = False
-                            st.rerun()
-                        else: st.error("Erro.")
-                    else: st.warning("Verifique.")
+            # Botão que abre o POP-UP
+            if st.button("Alterar Senha", key="btn_abre_modal"):
+                abrir_modal_senha(u_cod)
         
         with c_sair:
+            # Botão Sair (Vermelho via CSS)
             st.markdown('<div class="btn-sair">', unsafe_allow_html=True)
             if st.button("Encerrar Sessão"):
                 st.session_state['logado'] = False
