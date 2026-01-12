@@ -26,17 +26,17 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
     
-    .block-container { padding-top: 2rem; }
+    .block-container { padding-top: 1rem; } /* Reduzi o padding do topo */
     .stApp { background-color: #f4f8fb; }
 
     /* Header Degradê (Bloco Azul) */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
-        padding: 25px;
+        padding: 20px 25px;
         border-radius: 15px;
         color: white;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        height: 100%; /* Ocupa altura total para alinhar */
+        height: 100%;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -50,27 +50,39 @@ st.markdown("""
         border-radius: 10px;
     }
 
-    /* Botões */
+    /* Botões Padrão */
     div.stButton > button {
         background-color: #0066cc; color: white; border-radius: 8px; border: none;
-        padding: 0px 10px; /* Padding reduzido para caber melhor */
-        height: 40px; /* Altura fixa para alinhar com inputs */
+        padding: 0px 10px;
+        height: 40px; 
         font-weight: bold; width: 100%; transition: 0.3s;
     }
     div.stButton > button:hover { background-color: #004080; color: white; }
     
-    /* Botão Sair (Vermelho discreto e alinhado) */
+    /* Botão Sair - Correção de Alinhamento e Cor */
+    .btn-sair {
+        display: flex;
+        align-items: center; /* Centraliza verticalmente */
+        height: 100%;
+        padding-top: 2px;
+    }
     .btn-sair > button {
         background-color: #ff4b4b !important;
-        margin-top: 2px; /* Pequeno ajuste visual para alinhar com o expander */
+        min-height: 42px; /* Garante altura igual ao input do expander */
     }
     .btn-sair > button:hover { background-color: #c93030 !important; }
 
-    /* Ajuste do Expander para ficar compacto */
+    /* Ajuste do Expander */
     [data-testid="stExpander"] {
         background-color: white;
         border-radius: 8px;
         border: 1px solid #e0e0e0;
+    }
+    
+    /* Garante que a logo não ultrapasse a tela */
+    .logo-container img {
+        max-width: 100%;
+        height: auto;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -180,44 +192,44 @@ def tela_principal():
     saldo = st.session_state['saldo_atual']
     
     # --- LAYOUT DO TOPO ---
-    # AJUSTE: Mudei para [2, 1] para dar mais espaço à direita e não cortar a logo
-    col_info, col_acoes = st.columns([2, 1])
+    # AJUSTE: Proporção [3, 1.3] para dar mais espaço à direita
+    col_info, col_acoes = st.columns([3, 1.3])
     
-    # Coluna 1: Bloco Azul (Texto atualizado)
+    # Coluna 1: Bloco Azul
     with col_info:
         st.markdown(f"""
             <div class="header-style">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex: 1;">
-                        <h2 style="margin:0; color: white; font-size: 26px;">Olá, {u_nome}! 👋</h2>
-                        <p style="margin-top: 5px; opacity:0.9; font-size: 16px; line-height: 1.4;">
+                    <div style="flex: 1; padding-right: 20px;">
+                        <h2 style="margin:0; color: white; font-size: 24px;">Olá, {u_nome}! 👋</h2>
+                        <p style="margin-top: 8px; opacity:0.9; font-size: 15px; line-height: 1.3;">
                             Bem Vindo (a) a Loja de Prêmios Culligan. Aproveite a lista de prêmios incríveis que você pode resgatar!
                         </p>
                     </div>
-                    <div style="text-align: right; min-width: 120px; margin-left: 15px;">
-                        <span style="font-size:14px; opacity:0.8;">SEU SALDO</span><br>
-                        <span style="font-size:36px; font-weight:bold;">{saldo:,.0f}</span> <span style="font-size:20px;">pts</span>
+                    <div style="text-align: right; min-width: 110px;">
+                        <span style="font-size:12px; opacity:0.8; letter-spacing: 1px;">SEU SALDO</span><br>
+                        <span style="font-size:32px; font-weight:bold;">{saldo:,.0f}</span> <span style="font-size:18px;">pts</span>
                     </div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
 
-    # Coluna 2: Logo e Botões (Lado a Lado)
+    # Coluna 2: Logo e Botões
     with col_acoes:
-        # 1. Logo (Centralizada e com max-width para não cortar)
+        # 1. Logo (Container com margem)
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(
-            f'<div style="text-align:center; margin-bottom: 15px;">'
-            f'<img src="{img_b64}" style="max-width: 100%; height: auto; max-height: 80px;">'
+            f'<div class="logo-container" style="text-align:center; margin-bottom: 12px; padding-top: 5px;">'
+            f'<img src="{img_b64}" style="max-height: 70px;">'
             f'</div>', 
             unsafe_allow_html=True
         )
         
-        # 2. Botões lado a lado (Alterar Senha | Sair)
-        c_senha, c_sair = st.columns([1.5, 0.8]) # Proporção para caber o expander e o botão
+        # 2. Botões lado a lado
+        # Ajuste fino das colunas internas para alinhamento
+        c_senha, c_sair = st.columns([1.6, 0.8]) 
         
         with c_senha:
-            # Expander de Senha
             with st.expander("🔐 Alterar Senha"):
                 nova_s = st.text_input("Nova senha", type="password", key="ns", label_visibility="collapsed", placeholder="Nova Senha")
                 conf_s = st.text_input("Confirmar", type="password", key="cs", label_visibility="collapsed", placeholder="Confirmar")
@@ -232,7 +244,7 @@ def tela_principal():
                     else: st.warning("Verifique.")
         
         with c_sair:
-            # Botão Sair
+            # Botão Sair - Classe CSS para alinhar verticalmente
             st.markdown('<div class="btn-sair">', unsafe_allow_html=True)
             if st.button("Sair"):
                 st.session_state['logado'] = False
