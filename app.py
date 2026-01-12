@@ -51,16 +51,18 @@ st.markdown("""
 
     /* --- ESTILO DOS BOTÕES --- */
     
-    /* 1. Botões Padrão (Alterar Senha, Resgatar) -> AZUL */
+    /* Botões Gerais (Azul Padrão) */
     div.stButton > button[kind="secondary"] {
         background-color: #0066cc; 
         color: white; 
         border-radius: 8px; 
         border: none;
-        height: 45px;
+        height: 40px; /* Altura padrão */
+        font-size: 14px;
         font-weight: bold; 
         width: 100%; 
         transition: 0.3s;
+        white-space: nowrap; /* Evita quebra de linha no texto */
     }
     div.stButton > button[kind="secondary"]:hover { 
         background-color: #004080; 
@@ -68,15 +70,17 @@ st.markdown("""
         border: none;
     }
     
-    /* 2. Botão Primário (Encerrar Sessão) -> VERMELHO */
+    /* Botão Primário (Vermelho) */
     div.stButton > button[kind="primary"] {
         background-color: #ff4b4b !important;
         color: white !important;
         border-radius: 8px;
         border: none;
-        height: 45px;
+        height: 40px;
+        font-size: 14px;
         font-weight: bold;
         width: 100%;
+        white-space: nowrap;
     }
     div.stButton > button[kind="primary"]:hover {
         background-color: #c93030 !important;
@@ -211,7 +215,9 @@ def tela_principal():
     tipo = st.session_state['tipo_usuario']
     saldo = st.session_state['saldo_atual']
     
-    col_info, col_acoes = st.columns([3, 1.4])
+    # 1. AJUSTE DE COLUNAS DO CABEÇALHO
+    # Reduzi a coluna da direita de 1.4 para 1.1 para "apertar" o layout
+    col_info, col_acoes = st.columns([3, 1.1])
     
     with col_info:
         st.markdown(f"""
@@ -235,22 +241,22 @@ def tela_principal():
         # LOGO
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(
-            f'<div class="logo-container" style="text-align:center; margin-bottom: 15px; padding-top: 5px;">'
+            f'<div class="logo-container" style="text-align:center; margin-bottom: 10px; padding-top: 5px;">'
             f'<img src="{img_b64}" style="max-height: 70px;">'
             f'</div>', 
             unsafe_allow_html=True
         )
         
-        # BOTÕES LADO A LADO
-        c_senha, c_sair = st.columns([1, 1]) 
+        # 2. BOTÕES CENTRALIZADOS E PRÓXIMOS
+        # [0.1, 1, 1, 0.1] -> As pontas empurram os botões para o centro
+        # gap="small" -> Garante que fiquem grudadinhos
+        c_vazio1, c_senha, c_sair, c_vazio2 = st.columns([0.05, 1, 1, 0.05], gap="small")
         
         with c_senha:
-            # Botão Azul (Padrão)
             if st.button("Alterar Senha", key="btn_abre_modal"):
                 abrir_modal_senha(u_cod)
         
         with c_sair:
-            # Botão Vermelho (tipo='primary' aciona o CSS do botão vermelho)
             if st.button("Encerrar Sessão", key="btn_sair", type="primary"):
                 st.session_state['logado'] = False
                 st.rerun()
