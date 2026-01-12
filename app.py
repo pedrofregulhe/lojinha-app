@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import time
 import base64
-import bcrypt # Criptografia de senha
+import bcrypt
 
 # --- CONFIGURAÇÕES GERAIS ---
 st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
@@ -31,7 +31,7 @@ def gerar_hash(senha):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(senha.encode('utf-8'), salt).decode('utf-8')
 
-# --- ESTILIZAÇÃO (CSS "BLUE OCEAN" FINAL) ---
+# --- ESTILIZAÇÃO ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
@@ -40,7 +40,6 @@ st.markdown("""
     header { visibility: hidden; }
     .stDeployButton { display: none; }
     
-    /* GRADIENTE AZUL DE FUNDO */
     .stApp {
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
         background-size: 400% 400%;
@@ -52,45 +51,24 @@ st.markdown("""
         100% { background-position: 0% 50%; }
     }
     
-    .main-app-bg {
-        background-color: #f4f8fb !important;
-        background-image: none !important;
-    }
+    .main-app-bg { background-color: #f4f8fb !important; background-image: none !important; }
+    .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
 
-    .block-container { 
-        padding-top: 2rem !important; 
-        padding-bottom: 2rem !important;
-    }
-
-    /* CARD DE LOGIN BRANCO SÓLIDO */
     [data-testid="stForm"] {
-        background-color: #ffffff;
-        padding: 40px;
-        border-radius: 20px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        border: none;
+        background-color: #ffffff; padding: 40px; border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none;
     }
     
-    .stTextInput input {
-        background-color: #f7f9fc;
-        color: #333;
-        border: 1px solid #e0e0e0;
-    }
+    .stTextInput input { background-color: #f7f9fc; color: #333; border: 1px solid #e0e0e0; }
 
-    /* HEADER INTERNO */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
-        padding: 20px 25px;
-        border-radius: 15px;
-        color: white;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        display: flex; flex-direction: column; justify-content: center;
-        height: 100%;
+        padding: 20px 25px; border-radius: 15px; color: white;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%;
     }
 
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; width: 100% !important; border-radius: 10px; }
 
-    /* BOTÕES */
     div.stButton > button[kind="secondary"] {
         background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; transition: 0.3s;
     }
@@ -142,14 +120,11 @@ def validar_login(user_input, pass_input):
             if verificar_senha_hash(pass_in, hash_armazenado):
                 nome = linha['nome'] if 'nome' in df.columns else u_in
                 saldo = float(linha['saldo']) if 'saldo' in df.columns else 0.0
-                
                 tipo = "comum"
                 if 'tipo' in df.columns:
                     if str(linha['tipo']).lower().strip() == 'admin':
                         tipo = 'admin'
-                
                 return True, nome, tipo, saldo
-                
         return False, None, None, 0
     except Exception as e:
         st.error(f"Erro login: {e}"); return False, None, None, 0
@@ -173,9 +148,17 @@ def processar_resgate(usuario_cod, item_nome, custo):
         if 'usuario_str' in df_u.columns: df_u = df_u.drop(columns=['usuario_str'])
         conn.update(worksheet="usuarios", data=df_u)
         
+        # --- ATUALIZAÇÃO DO STATUS (AQUI MUDOU) ---
         df_v = carregar_dados("vendas")
-        nova = pd.DataFrame([{"Data": datetime.now().strftime("%d/%m/%Y %H:%M"), "Usuario": usuario_cod, "Item": item_nome, "Valor": custo}])
+        nova = pd.DataFrame([{
+            "Data": datetime.now().strftime("%d/%m/%Y %H:%M"), 
+            "Usuario": usuario_cod, 
+            "Item": item_nome, 
+            "Valor": custo,
+            "Status": "Pendente"  # <--- Status Inicial
+        }])
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
+        
         st.session_state['saldo_atual'] = novo_saldo
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
@@ -202,19 +185,15 @@ def abrir_modal_senha(usuario_cod):
 
 # --- TELAS ---
 def tela_login():
-    # Centralização
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
-        
         with st.form("frm_login"):
             img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
             st.markdown(f'<div style="text-align: center; margin-bottom: 25px;"><img src="{img_b64}" style="width: 220px;"></div>', unsafe_allow_html=True)
-            
             u = st.text_input("Usuário", placeholder="Digite seu login")
             s = st.text_input("Senha", type="password", placeholder="Digite sua senha")
             st.markdown("<br>", unsafe_allow_html=True)
-            
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, nome, tipo, saldo = validar_login(u, s)
                 if ok:
@@ -228,20 +207,58 @@ def tela_login():
 
 def tela_admin():
     st.subheader("🛠️ Painel Super Admin")
-    # ADICIONEI A 4ª ABA AQUI: Ferramentas
-    t1, t2, t3, t4 = st.tabs(["📊 Dashboard", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
+    t1, t2, t3, t4 = st.tabs(["📊 Dashboard & Entregas", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
     
+    # --- ABA 1: DASHBOARD COM STATUS EDITÁVEL ---
     with t1:
+        st.info("Aqui você pode mudar o status dos pedidos para 'Entregue'.")
         df_v = carregar_dados("vendas")
+        
         if not df_v.empty:
+            # Métricas
             c1, c2 = st.columns(2)
             c1.metric("Total Pontos", f"{df_v['Valor'].sum():,.0f}")
             c2.metric("Total Pedidos", len(df_v))
-            st.dataframe(df_v, use_container_width=True)
+            
+            st.markdown("---")
+            st.markdown("### 🚚 Gerenciar Pedidos")
+            
+            # Garante que a coluna Status existe
+            if "Status" not in df_v.columns:
+                df_v["Status"] = "Pendente"
+
+            # Tabela Editável
+            edited_df = st.data_editor(
+                df_v,
+                column_config={
+                    "Status": st.column_config.SelectboxColumn(
+                        "Status do Pedido",
+                        help="Atualize o status da entrega",
+                        width="medium",
+                        options=["Pendente", "Em Separação", "Entregue", "Cancelado"],
+                        required=True,
+                    ),
+                    "Data": st.column_config.TextColumn("Data", disabled=True),
+                    "Usuario": st.column_config.TextColumn("Usuário", disabled=True),
+                    "Item": st.column_config.TextColumn("Item", disabled=True),
+                    "Valor": st.column_config.NumberColumn("Valor", disabled=True),
+                },
+                use_container_width=True,
+                hide_index=True,
+                key="editor_vendas"
+            )
+            
+            if st.button("💾 Salvar Alterações de Status", type="primary"):
+                salvar_alteracoes_admin("vendas", edited_df)
+                st.success("Status atualizados com sucesso!")
+                time.sleep(1)
+                st.rerun()
+        else:
+            st.info("Nenhuma venda realizada.")
+
     with t2:
         st.info("Edite os usuários abaixo:")
         df_u = carregar_dados("usuarios")
-        colunas = [c for c in df_u.columns if c != 'senha'] 
         df_edit = st.data_editor(df_u, use_container_width=True, num_rows="dynamic")
         if st.button("Salvar Usuários", type="primary"):
             salvar_alteracoes_admin("usuarios", df_edit)
@@ -253,25 +270,17 @@ def tela_admin():
         if st.button("Salvar Prêmios", type="primary"):
             salvar_alteracoes_admin("premios", df_p_edit)
             st.success("Salvo!"); time.sleep(1); st.rerun()
-    
-    # NOVA ABA DE FERRAMENTAS (Só o Admin vê)
     with t4:
         st.markdown("### 🔐 Gerador de Hash Seguro")
-        st.info("Use esta ferramenta para criar senhas seguras antes de colar na planilha do Google.")
-        
+        st.info("Ferramenta para criar senhas seguras.")
         col_a, col_b = st.columns([1, 2])
-        with col_a:
-            senha_para_hash = st.text_input("Digite a senha normal:", placeholder="Ex: culligan2026")
-        
+        with col_a: senha_para_hash = st.text_input("Senha normal:", placeholder="Ex: culligan2026")
         with col_b:
             if senha_para_hash:
-                st.markdown("**Copie o código abaixo:**")
-                hash_gerado = gerar_hash(senha_para_hash)
-                st.code(hash_gerado, language="text")
-                st.caption("Cole este código na coluna 'senha' da aba Usuários.")
+                st.markdown("**Copie o código:**")
+                st.code(gerar_hash(senha_para_hash), language="text")
 
 def tela_principal():
-    # Remove animação do fundo quando logado
     st.markdown('<style>.stApp {background: #f4f8fb; animation: none;}</style>', unsafe_allow_html=True)
     u_cod = st.session_state['usuario_cod']
     u_nome = st.session_state['usuario_nome']
@@ -296,8 +305,6 @@ def tela_principal():
     with col_acoes:
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(f'<div style="text-align:center; margin-bottom: 10px; padding-top: 5px;"><img src="{img_b64}" style="max-height: 70px;"></div>', unsafe_allow_html=True)
-        
-        # BOTÕES LADO A LADO
         c_senha, c_sair = st.columns([1, 1]) 
         with c_senha: 
             if st.button("Alterar Senha", key="b_senha", use_container_width=True): abrir_modal_senha(u_cod)
@@ -332,10 +339,20 @@ def tela_principal():
                             else: st.button(f"Falta {row['custo']-saldo:.0f}", disabled=True, key=f"d_{row['id']}", use_container_width=True)
             else: st.warning("Vazio.")
         with t2:
+            # --- MOSTRAR STATUS PARA O USUÁRIO ---
             df_v = carregar_dados("vendas")
             if not df_v.empty:
                 df_v['Usuario'] = df_v['Usuario'].astype(str)
-                st.dataframe(df_v[df_v['Usuario']==str(u_cod)][['Data','Item','Valor']], use_container_width=True, hide_index=True)
+                meus_resgates = df_v[df_v['Usuario']==str(u_cod)]
+                
+                # Garante que coluna Status aparece
+                colunas_mostrar = ['Data','Item','Valor']
+                if 'Status' in meus_resgates.columns:
+                    colunas_mostrar.append('Status')
+                
+                st.dataframe(meus_resgates[colunas_mostrar], use_container_width=True, hide_index=True)
+            else:
+                st.info("Você ainda não fez resgates.")
 
 if __name__ == "__main__":
     if st.session_state['logado']: tela_principal()
