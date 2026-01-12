@@ -8,7 +8,7 @@ import time
 st.set_page_config(page_title="Portal de Prêmios", layout="wide", page_icon="🎁")
 
 # COLOCAR AQUI O LINK DA SUA LOGO (Pode ser do site da empresa ou Google Drive)
-URL_LOGO = "https://cdn-icons-png.flaticon.com/512/6213/6213388.png" 
+URL_LOGO = "logo.png" 
 
 # --- ESTILIZAÇÃO (CSS PREMIUM) ---
 st.markdown("""
