@@ -1,117 +1,134 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import time
+import plotly.express as px
+from datetime import datetime
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Lojinha de Pontos", layout="centered")
+# --- CONFIGURAÇÕES ---
+# Nome exato da aba onde os registros serão salvos
+NOME_ABA = "vendas"  
+USUARIO_ADMIN = "admin" # Defina quem é o admin
+
+# Catálogo de Prêmios (Simulação dos itens disponíveis para resgate)
+# Valor aqui seria 'pontos' ou 'custo'
+CATALOGO = {
+    "Garrafa Térmica": 50,
+    "Mochila Executiva": 150,
+    "Kit Escritório": 80,
+    "Fone Bluetooth": 200
+}
+
+st.set_page_config(page_title="Portal de Resgates", layout="wide")
 
 # --- CONEXÃO COM GOOGLE SHEETS ---
-def conectar_google_sheets():
-    # Define o escopo de permissão
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
-    # PEGA AS CREDENCIAIS DOS SEGREDOS DO STREAMLIT (NÃO DO ARQUIVO LOCAL)
-    # Vamos configurar isso no passo seguinte
-    creds_dict = st.secrets["gcp_service_account"]
-    
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    
-    # Abre a planilha pelo nome
-    sheet = client.open("Lojinha_DB")
-    return sheet
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-def carregar_dados():
+def ler_dados():
+    # Lê os dados da aba 'vendas', garantindo que cache expire rápido para ver atualizações
+    # ttl=0 garante que sempre pegamos o dado fresco do Google Sheets
+    return conn.read(worksheet=NOME_ABA, ttl=0)
+
+def salvar_resgate(usuario, item, valor):
     try:
-        sheet = conectar_google_sheets()
-        # Pega todos os registros das abas
-        usuarios = pd.DataFrame(sheet.worksheet("usuarios").get_all_records())
-        premios = pd.DataFrame(sheet.worksheet("premios").get_all_records())
-        return usuarios, premios, sheet
-    except Exception as e:
-        st.error(f"Erro ao conectar na planilha: {e}")
-        return None, None, None
-
-# --- INICIALIZAÇÃO DA SESSÃO ---
-if 'logado' not in st.session_state:
-    st.session_state['logado'] = False
-
-# --- TELA DE LOGIN ---
-if not st.session_state['logado']:
-    st.title("🔐 Login da Lojinha")
-    usuario_input = st.text_input("Usuário")
-    senha_input = st.text_input("Senha", type="password")
-    
-    if st.button("Entrar"):
-        df_usuarios, _, _ = carregar_dados()
+        # 1. Carrega dados atuais
+        df_atual = ler_dados()
         
-        if df_usuarios is not None:
-            # Converte saldo para numero caso venha como texto
-            df_usuarios['saldo'] = pd.to_numeric(df_usuarios['saldo'])
-            
-            # Verifica login
-            user_match = df_usuarios[
-                (df_usuarios['usuario'].astype(str) == usuario_input) & 
-                (df_usuarios['senha'].astype(str) == senha_input)
-            ]
-            
-            if not user_match.empty:
-                st.session_state['logado'] = True
-                st.session_state['usuario_atual'] = user_match.iloc[0].to_dict()
-                st.rerun()
-            else:
-                st.error("Usuário ou senha incorretos.")
+        # 2. Cria a nova linha
+        novo_registro = pd.DataFrame([{
+            "Data": datetime.now().strftime("%Y-%m-%d"),
+            "Usuario": usuario,
+            "Item": item,
+            "Valor": valor
+        }])
+        
+        # 3. Adiciona a nova linha ao dataframe existente
+        df_atualizado = pd.concat([df_atual, novo_registro], ignore_index=True)
+        
+        # 4. Envia tudo de volta para o Google Sheets
+        conn.update(worksheet=NOME_ABA, data=df_atualizado)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}")
+        return False
 
-# --- TELA DA LOJA ---
-else:
-    df_usuarios, df_premios, sheet_obj = carregar_dados()
-    
-    # Atualiza dados do usuário logado com o que veio da planilha agora
-    usuario_logado = st.session_state['usuario_atual']['usuario']
-    dados_user_atual = df_usuarios[df_usuarios['usuario'].astype(str) == usuario_logado].iloc[0]
-    saldo_user = int(dados_user_atual['saldo'])
-    nome_user = dados_user_atual['nome']
-    
-    with st.sidebar:
-        st.header(f"Olá, {nome_user}!")
-        st.metric("Seu Saldo", f"{saldo_user} pts")
-        if st.button("Sair"):
-            st.session_state['logado'] = False
-            st.rerun()
+# --- INTERFACE ---
+def main():
+    st.sidebar.title("Login Sistema")
+    usuario_logado = st.sidebar.text_input("Digite seu Usuário:")
 
-    st.title("🎁 Prêmios Disponíveis")
-    
-    for index, row in df_premios.iterrows():
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.image(row['imagem'], use_container_width=True)
-        with col2:
-            st.subheader(row['item'])
-            st.write(f"**Custo:** {row['custo']} pontos")
+    if not usuario_logado:
+        st.info("Faça login para continuar.")
+        st.stop()
+
+    # ---------------------------------------------------------
+    # PERFIL: ADMINISTRADOR (Visão Consolidada)
+    # ---------------------------------------------------------
+    if usuario_logado.lower() == USUARIO_ADMIN:
+        st.title("📊 Painel do Administrador")
+        st.success(f"Logado como Admin: {usuario_logado}")
+        
+        df = ler_dados()
+        
+        if not df.empty:
+            # Métricas
+            total_resgatado = df["Valor"].sum()
+            total_itens = len(df)
             
-            key_btn = f"btn_{row['id']}"
-            if st.button(f"Resgatar {row['item']}", key=key_btn):
-                custo = int(row['custo'])
-                if saldo_user >= custo:
-                    # --- LÓGICA DE ESCRITA NO GOOGLE SHEETS ---
-                    novo_saldo = saldo_user - custo
-                    
-                    # Acha a linha correta na planilha para atualizar
-                    # (Adiciona 2 porque o gspread conta a partir do 1 e tem o cabeçalho)
-                    row_index = df_usuarios[df_usuarios['usuario'].astype(str) == usuario_logado].index[0] + 2
-                    
-                    try:
-                        worksheet_users = sheet_obj.worksheet("usuarios")
-                        # Atualiza a coluna 4 (Saldo) na linha do usuário
-                        worksheet_users.update_cell(row_index, 4, novo_saldo)
-                        
-                        st.success(f"Resgatado! Seu novo saldo é {novo_saldo}")
-                        time.sleep(2)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao salvar na planilha: {e}")
-                else:
-                    st.error("Saldo insuficiente!")
-        st.divider()
+            c1, c2 = st.columns(2)
+            c1.metric("Total de Pontos Resgatados", f"{total_resgatado}")
+            c2.metric("Quantidade de Resgates", f"{total_itens}")
+            
+            st.markdown("---")
+            
+            # Gráficos
+            col_g1, col_g2 = st.columns(2)
+            
+            # Mais resgatados
+            graf_itens = px.bar(df, x="Item", y="Valor", title="Itens mais Populares", color="Item")
+            col_g1.plotly_chart(graf_itens, use_container_width=True)
+            
+            # Tabela completa
+            st.subheader("Log Geral de Resgates")
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.warning("Ainda não há dados na planilha.")
+
+    # ---------------------------------------------------------
+    # PERFIL: USUÁRIO COMUM (Solicitar Resgate)
+    # ---------------------------------------------------------
+    else:
+        st.title(f"Olá, {usuario_logado}!")
+        st.subheader("🎁 Prêmios Disponíveis")
+        
+        # Exibe os prêmios em 'Cards'
+        cols = st.columns(len(CATALOGO))
+        
+        for i, (item_nome, valor_item) in enumerate(CATALOGO.items()):
+            with cols[i]:
+                st.info(f"**{item_nome}**")
+                st.metric("Valor", f"{valor_item} pts")
+                
+                # Botão de Resgate
+                # Usamos uma chave única para cada botão
+                if st.button(f"Resgatar", key=f"btn_{i}"):
+                    with st.spinner("Processando resgate..."):
+                        sucesso = salvar_resgate(usuario_logado, item_nome, valor_item)
+                        if sucesso:
+                            st.success(f"Parabéns! Você resgatou: {item_nome}")
+                            st.balloons()
+                        else:
+                            st.error("Erro ao processar.")
+
+        st.markdown("---")
+        st.subheader("Seu Histórico de Resgates")
+        
+        # Mostra o histórico lendo da planilha filtra pelo usuario
+        df = ler_dados()
+        if not df.empty:
+            meus_resgates = df[df["Usuario"] == usuario_logado]
+            st.dataframe(meus_resgates, use_container_width=True)
+        else:
+            st.write("Nenhum histórico encontrado.")
+
+if __name__ == "__main__":
+    main()
