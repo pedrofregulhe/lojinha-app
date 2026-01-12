@@ -20,76 +20,80 @@ def carregar_logo_base64(caminho_arquivo):
     except Exception:
         return "https://cdn-icons-png.flaticon.com/512/6213/6213388.png"
 
-# --- ESTILIZAÇÃO (CSS) ---
+# --- ESTILIZAÇÃO (CSS PREMIUM) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
     
-    .block-container { padding-top: 5rem !important; }
-    .stApp { background-color: #f4f8fb; }
+    /* BACKGROUND GRADIENTE NA TELA DE LOGIN */
+    .stApp {
+        background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+        background-size: 400% 400%;
+        animation: gradient 15s ease infinite;
+    }
+    @keyframes gradient {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    /* Se estiver logado, fundo volta ao cinza claro profissional */
+    .main-app-bg {
+        background-color: #f4f8fb !important;
+        background-image: none !important;
+    }
 
-    /* Header Degradê */
+    .block-container { padding-top: 3rem !important; }
+
+    /* CARD DE LOGIN */
+    .login-card {
+        background-color: white;
+        padding: 40px;
+        border-radius: 20px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        text-align: center;
+    }
+
+    /* HEADER INTERNO (Bloco Azul) */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
         padding: 20px 25px;
         border-radius: 15px;
         color: white;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        display: flex; flex-direction: column; justify-content: center;
         height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
     }
 
+    /* IMAGENS DOS PRODUTOS (Mais compactas) */
     [data-testid="stImage"] img {
-        height: 180px !important;
+        height: 150px !important; /* Reduzi um pouco */
         object-fit: contain !important;
         width: 100% !important;
         border-radius: 10px;
     }
 
-    /* --- ESTILO DOS BOTÕES --- */
-    
-    /* Botões Gerais (Azul Padrão) */
+    /* BOTÕES GERAIS */
     div.stButton > button[kind="secondary"] {
-        background-color: #0066cc; 
-        color: white; 
-        border-radius: 8px; 
-        border: none;
-        height: 40px; /* Altura padrão */
-        font-size: 14px;
-        font-weight: bold; 
-        width: 100%; 
-        transition: 0.3s;
-        white-space: nowrap; /* Evita quebra de linha no texto */
+        background-color: #0066cc; color: white; border-radius: 8px; border: none;
+        height: 40px; font-weight: bold; width: 100%; transition: 0.3s;
     }
-    div.stButton > button[kind="secondary"]:hover { 
-        background-color: #004080; 
-        color: white;
-        border: none;
+    div.stButton > button[kind="secondary"]:hover { background-color: #004080; color: white; }
+    
+    /* BOTÃO PRIMÁRIO (VERMELHO/SALVAR) */
+    div.stButton > button[kind="primary"] {
+        background-color: #ff4b4b !important; color: white !important;
+        border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%;
+    }
+    div.stButton > button[kind="primary"]:hover { background-color: #c93030 !important; }
+    
+    /* AJUSTE PARA O CARD DE PRODUTO FICAR MAIS "APERTADO" */
+    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
+        padding: 10px;
     }
     
-    /* Botão Primário (Vermelho) */
-    div.stButton > button[kind="primary"] {
-        background-color: #ff4b4b !important;
-        color: white !important;
-        border-radius: 8px;
-        border: none;
-        height: 40px;
-        font-size: 14px;
-        font-weight: bold;
-        width: 100%;
-        white-space: nowrap;
-    }
-    div.stButton > button[kind="primary"]:hover {
-        background-color: #c93030 !important;
-    }
-
-    .logo-container img {
-        max-width: 100%;
-        height: auto;
-    }
+    .logo-container img { max-width: 100%; height: auto; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -146,6 +150,15 @@ def alterar_senha_banco(usuario_cod, nova_senha):
         return True
     except: return False
 
+def salvar_alteracoes_admin(aba, df_novo):
+    """Função genérica para salvar edições do Admin"""
+    try:
+        conn.update(worksheet=aba, data=df_novo)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}")
+        return False
+
 def processar_resgate(usuario_cod, item_nome, custo):
     try:
         df_u = carregar_dados("usuarios")
@@ -187,38 +200,102 @@ def abrir_modal_senha(usuario_cod):
         else: st.warning("Senhas não conferem.")
 
 # --- TELAS ---
+
 def tela_login():
-    st.markdown("<br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        with st.container(border=True):
-            img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
-            st.markdown(f'<div style="text-align: center;"><img src="{img_b64}" style="width: 180px;"></div>', unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align: center; color: #333;'>Portal de Prêmios</h3>", unsafe_allow_html=True)
-            with st.form("frm_login"):
-                u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.form_submit_button("ACESSAR SISTEMA", use_container_width=True):
-                    ok, nome, tipo, saldo = validar_login(u, s)
-                    if ok:
-                        st.session_state['logado'] = True
-                        st.session_state['usuario_cod'] = u
-                        st.session_state['usuario_nome'] = nome
-                        st.session_state['tipo_usuario'] = tipo
-                        st.session_state['saldo_atual'] = saldo
-                        st.rerun()
-                    else: st.error("Login inválido.")
+    # Centralização Vertical e Horizontal com Colunas
+    col_vazia1, col_login, col_vazia2 = st.columns([1, 1, 1])
+    
+    with col_login:
+        st.markdown("<br><br><br>", unsafe_allow_html=True) # Empurrar para baixo
+        
+        # INICIO DO CARD CSS
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        
+        # LOGO
+        img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
+        st.markdown(f'<img src="{img_b64}" style="width: 150px; margin-bottom: 20px;">', unsafe_allow_html=True)
+        st.markdown("<h2 style='color: #333; margin-bottom: 5px;'>Portal Culligan</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #666; font-size: 14px; margin-bottom: 20px;'>Faça login para acessar seus prêmios</p>", unsafe_allow_html=True)
+        
+        # FORMULÁRIO
+        with st.form("frm_login"):
+            u = st.text_input("Usuário", placeholder="Seu login")
+            s = st.text_input("Senha", type="password", placeholder="Sua senha")
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Botão primário para login
+            if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
+                ok, nome, tipo, saldo = validar_login(u, s)
+                if ok:
+                    st.session_state['logado'] = True
+                    st.session_state['usuario_cod'] = u
+                    st.session_state['usuario_nome'] = nome
+                    st.session_state['tipo_usuario'] = tipo
+                    st.session_state['saldo_atual'] = saldo
+                    st.rerun()
+                else:
+                    st.toast("Usuário ou senha incorretos!", icon="❌")
+        
+        st.markdown('</div>', unsafe_allow_html=True) # FIM CARD
+
+def tela_admin():
+    """Tela Exclusiva do Administrador com Poderes de Edição"""
+    st.subheader("🛠️ Painel de Controle - Super Admin")
+    
+    tab_dash, tab_users, tab_premios = st.tabs(["📊 Visão Geral", "👥 Gerenciar Usuários", "🎁 Gerenciar Prêmios"])
+    
+    # 1. VISÃO GERAL
+    with tab_dash:
+        df_v = carregar_dados("vendas")
+        if not df_v.empty:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Resgatado (Pontos)", f"{df_v['Valor'].sum():,.0f}")
+            c2.metric("Total de Pedidos", len(df_v))
+            c3.metric("Último Resgate", df_v.iloc[-1]['Data'] if 'Data' in df_v else "-")
+            
+            st.markdown("### Extrato Completo de Resgates")
+            st.dataframe(df_v, use_container_width=True)
+        else:
+            st.info("Sem dados de vendas ainda.")
+
+    # 2. GERENCIAR USUÁRIOS (EDITÁVEL)
+    with tab_users:
+        st.info("💡 Edite os valores diretamente na tabela e clique em 'Salvar Alterações'.")
+        df_u = carregar_dados("usuarios")
+        
+        # Data Editor permite editar como Excel
+        df_u_editado = st.data_editor(df_u, num_rows="dynamic", use_container_width=True, key="editor_users")
+        
+        if st.button("💾 Salvar Alterações em Usuários", type="primary"):
+            if salvar_alteracoes_admin("usuarios", df_u_editado):
+                st.success("Banco de dados de usuários atualizado!")
+                time.sleep(1)
+                st.rerun()
+
+    # 3. GERENCIAR PRÊMIOS (EDITÁVEL)
+    with tab_premios:
+        st.info("💡 Adicione, remova ou edite prêmios aqui.")
+        df_p = carregar_dados("premios")
+        
+        df_p_editado = st.data_editor(df_p, num_rows="dynamic", use_container_width=True, key="editor_premios")
+        
+        if st.button("💾 Salvar Alterações em Prêmios", type="primary"):
+            if salvar_alteracoes_admin("premios", df_p_editado):
+                st.success("Catálogo de prêmios atualizado!")
+                time.sleep(1)
+                st.rerun()
 
 def tela_principal():
+    # Injeta CSS para fundo branco interno
+    st.markdown('<style>.stApp {background: #f4f8fb; animation: none;}</style>', unsafe_allow_html=True)
+    
     u_cod = st.session_state['usuario_cod']
     u_nome = st.session_state['usuario_nome']
     tipo = st.session_state['tipo_usuario']
     saldo = st.session_state['saldo_atual']
     
-    # 1. AJUSTE DE COLUNAS DO CABEÇALHO
-    # Reduzi a coluna da direita de 1.4 para 1.1 para "apertar" o layout
+    # HEADER (Mantido o design bonito)
     col_info, col_acoes = st.columns([3, 1.1])
-    
     with col_info:
         st.markdown(f"""
             <div class="header-style">
@@ -226,7 +303,7 @@ def tela_principal():
                     <div style="flex: 1; padding-right: 20px;">
                         <h2 style="margin:0; color: white; font-size: 24px;">Olá, {u_nome}! 👋</h2>
                         <p style="margin-top: 8px; opacity:0.9; font-size: 15px; line-height: 1.3;">
-                            Bem Vindo (a) a Loja de Prêmios Culligan. Aproveite a lista de prêmios incríveis que você pode resgatar!
+                            Bem Vindo (a) a Loja de Prêmios Culligan. Aproveite!
                         </p>
                     </div>
                     <div style="text-align: right; min-width: 110px;">
@@ -238,65 +315,56 @@ def tela_principal():
         """, unsafe_allow_html=True)
 
     with col_acoes:
-        # LOGO
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
-        st.markdown(
-            f'<div class="logo-container" style="text-align:center; margin-bottom: 10px; padding-top: 5px;">'
-            f'<img src="{img_b64}" style="max-height: 70px;">'
-            f'</div>', 
-            unsafe_allow_html=True
-        )
+        st.markdown(f'<div style="text-align:center; margin-bottom: 10px; padding-top: 5px;"><img src="{img_b64}" style="max-height: 70px;"></div>', unsafe_allow_html=True)
         
-        # 2. BOTÕES CENTRALIZADOS E PRÓXIMOS
-        # [0.1, 1, 1, 0.1] -> As pontas empurram os botões para o centro
-        # gap="small" -> Garante que fiquem grudadinhos
         c_vazio1, c_senha, c_sair, c_vazio2 = st.columns([0.05, 1, 1, 0.05], gap="small")
-        
         with c_senha:
-            if st.button("Alterar Senha", key="btn_abre_modal"):
-                abrir_modal_senha(u_cod)
-        
+            if st.button("Alterar Senha", key="btn_abre_modal"): abrir_modal_senha(u_cod)
         with c_sair:
-            if st.button("Encerrar Sessão", key="btn_sair", type="primary"):
+            if st.button("Sair", key="btn_sair", type="primary"):
                 st.session_state['logado'] = False
                 st.rerun()
 
     st.divider()
 
-    # --- ÁREA DE CONTEÚDO ---
+    # ROTEAMENTO DE TELAS
     if tipo == 'admin':
-        st.subheader("Painel Admin")
-        df_v = carregar_dados("vendas")
-        if not df_v.empty: st.dataframe(df_v, use_container_width=True)
-        else: st.info("Sem dados.")
+        tela_admin()
     else:
+        # TELA USUÁRIO COMUM
         tab1, tab2 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates"])
         with tab1:
             df_p = carregar_dados("premios")
             if not df_p.empty:
-                busca = st.text_input("🔍 Buscar prêmio...", placeholder="Ex: Fone...")
+                col_busca, _ = st.columns([1, 2])
+                with col_busca:
+                    busca = st.text_input("🔍 Buscar...", placeholder="Nome do prêmio")
                 if busca: df_p = df_p[df_p['item'].str.contains(busca, case=False, na=False)]
                 
                 st.markdown("<br>", unsafe_allow_html=True)
-                cols = st.columns(3)
+                
+                # ALTERAÇÃO: 4 Colunas + Gap Pequeno para reduzir espaçamento
+                cols = st.columns(4, gap="small") 
+                
                 for i, row in df_p.iterrows():
-                    with cols[i % 3]:
-                        with st.container():
+                    with cols[i % 4]:
+                        with st.container(border=True): # Container com borda nativa do Streamlit fica mais clean
                             if pd.notna(row.get('imagem')) and str(row['imagem']).startswith('http'):
                                 st.image(row['imagem'])
                             else: st.image("https://via.placeholder.com/200?text=Sem+Imagem")
                             
-                            st.markdown(f"#### {row['item']}")
+                            st.markdown(f"**{row['item']}**")
                             cor = "#0066cc" if saldo >= row['custo'] else "#999"
-                            st.markdown(f"<div style='color:{cor}; font-weight:bold; font-size:20px;'>{row['custo']} pts</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='color:{cor}; font-weight:bold; font-size:18px; margin-bottom: 10px;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             
                             if saldo >= row['custo']:
-                                if st.button("RESGATAR", key=f"b_{row['id']}"):
+                                if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                     with st.spinner("..."):
                                         if processar_resgate(u_cod, row['item'], row['custo']):
                                             st.balloons(); time.sleep(2); st.rerun()
-                            else: st.button(f"Falta {row['custo']-saldo:.0f}", disabled=True, key=f"d_{row['id']}")
-            else: st.warning("Vazio.")
+                            else: st.button(f"Falta {row['custo']-saldo:.0f}", disabled=True, key=f"d_{row['id']}", use_container_width=True)
+            else: st.warning("Catálogo vazio.")
         
         with tab2:
             df_v = carregar_dados("vendas")
