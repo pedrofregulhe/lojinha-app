@@ -29,7 +29,7 @@ st.markdown("""
     .block-container { padding-top: 5rem !important; }
     .stApp { background-color: #f4f8fb; }
 
-    /* Header Degradê (Bloco Azul) */
+    /* Header Degradê */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
         padding: 20px 25px;
@@ -42,7 +42,6 @@ st.markdown("""
         justify-content: center;
     }
 
-    /* Estilo dos Produtos */
     [data-testid="stImage"] img {
         height: 180px !important;
         object-fit: contain !important;
@@ -50,25 +49,37 @@ st.markdown("""
         border-radius: 10px;
     }
 
-    /* Botões Gerais (Azul Padrão) */
-    div.stButton > button {
-        background-color: #0066cc; color: white; border-radius: 8px; border: none;
-        padding: 0px 10px;
-        height: 45px; /* Altura fixa para alinhar tudo */
-        font-weight: bold; width: 100%; transition: 0.3s;
-    }
-    div.stButton > button:hover { background-color: #004080; color: white; }
+    /* --- ESTILO DOS BOTÕES --- */
     
-    /* Botão Sair (Vermelho) */
-    /* Usamos uma classe container para garantir que só este botão fique vermelho */
-    .btn-sair > button {
-        background-color: #ff4b4b !important;
+    /* 1. Botões Padrão (Alterar Senha, Resgatar) -> AZUL */
+    div.stButton > button[kind="secondary"] {
+        background-color: #0066cc; 
+        color: white; 
+        border-radius: 8px; 
+        border: none;
+        height: 45px;
+        font-weight: bold; 
+        width: 100%; 
+        transition: 0.3s;
     }
-    .btn-sair > button:hover { background-color: #c93030 !important; }
-
-    /* Botão Alterar Senha (Laranja/Amarelo ou Azul Escuro - vamos manter azul mas com icone) */
-    .btn-senha > button {
-        border: 1px solid #0066cc;
+    div.stButton > button[kind="secondary"]:hover { 
+        background-color: #004080; 
+        color: white;
+        border: none;
+    }
+    
+    /* 2. Botão Primário (Encerrar Sessão) -> VERMELHO */
+    div.stButton > button[kind="primary"] {
+        background-color: #ff4b4b !important;
+        color: white !important;
+        border-radius: 8px;
+        border: none;
+        height: 45px;
+        font-weight: bold;
+        width: 100%;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #c93030 !important;
     }
 
     .logo-container img {
@@ -153,7 +164,7 @@ def processar_resgate(usuario_cod, item_nome, custo):
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
 
-# --- COMPONENTE: MODAL DE SENHA (POP-UP) ---
+# --- MODAL ---
 @st.dialog("🔐 Alterar Senha")
 def abrir_modal_senha(usuario_cod):
     st.write("Digite sua nova senha abaixo:")
@@ -168,10 +179,8 @@ def abrir_modal_senha(usuario_cod):
                     time.sleep(1.5)
                     st.session_state['logado'] = False
                     st.rerun()
-                else:
-                    st.error("Erro ao conectar com o banco de dados.")
-        else:
-            st.warning("As senhas não coincidem ou estão vazias.")
+                else: st.error("Erro ao conectar.")
+        else: st.warning("Senhas não conferem.")
 
 # --- TELAS ---
 def tela_login():
@@ -202,10 +211,8 @@ def tela_principal():
     tipo = st.session_state['tipo_usuario']
     saldo = st.session_state['saldo_atual']
     
-    # --- LAYOUT DO TOPO ---
     col_info, col_acoes = st.columns([3, 1.4])
     
-    # Bloco Azul
     with col_info:
         st.markdown(f"""
             <div class="header-style">
@@ -224,9 +231,8 @@ def tela_principal():
             </div>
         """, unsafe_allow_html=True)
 
-    # Logo + Botões Alinhados
     with col_acoes:
-        # Logo
+        # LOGO
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(
             f'<div class="logo-container" style="text-align:center; margin-bottom: 15px; padding-top: 5px;">'
@@ -235,25 +241,23 @@ def tela_principal():
             unsafe_allow_html=True
         )
         
-        # Botões lado a lado (Agora são dois botões reais, alinhamento perfeito)
+        # BOTÕES LADO A LADO
         c_senha, c_sair = st.columns([1, 1]) 
         
         with c_senha:
-            # Botão que abre o POP-UP
+            # Botão Azul (Padrão)
             if st.button("Alterar Senha", key="btn_abre_modal"):
                 abrir_modal_senha(u_cod)
         
         with c_sair:
-            # Botão Sair (Vermelho via CSS)
-            st.markdown('<div class="btn-sair">', unsafe_allow_html=True)
-            if st.button("Encerrar Sessão"):
+            # Botão Vermelho (tipo='primary' aciona o CSS do botão vermelho)
+            if st.button("Encerrar Sessão", key="btn_sair", type="primary"):
                 st.session_state['logado'] = False
                 st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
 
-    # --- CONTEÚDO ---
+    # --- ÁREA DE CONTEÚDO ---
     if tipo == 'admin':
         st.subheader("Painel Admin")
         df_v = carregar_dados("vendas")
