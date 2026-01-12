@@ -31,7 +31,7 @@ def gerar_hash(senha):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(senha.encode('utf-8'), salt).decode('utf-8')
 
-# --- ESTILIZAÇÃO (CSS "BLUE OCEAN" + FIX LOGIN BOX) ---
+# --- ESTILIZAÇÃO (CSS "BLUE OCEAN" FINAL) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
@@ -62,24 +62,22 @@ st.markdown("""
         padding-bottom: 2rem !important;
     }
 
-    /* --- ESTILO DA CAIXA DE LOGIN BRANCA SÓLIDA --- */
-    /* Alvo: O contêiner do formulário st.form */
+    /* CARD DE LOGIN BRANCO SÓLIDO */
     [data-testid="stForm"] {
-        background-color: #ffffff; /* Branco Sólido */
+        background-color: #ffffff;
         padding: 40px;
         border-radius: 20px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        border: none; /* Remove borda padrão se houver */
+        border: none;
     }
     
-    /* Ajuste dos inputs para ficarem bons no fundo branco */
     .stTextInput input {
-        background-color: #f7f9fc; /* Cinza muito claro para contraste */
+        background-color: #f7f9fc;
         color: #333;
         border: 1px solid #e0e0e0;
     }
 
-    /* HEADER INTERNO DA ÁREA LOGADA */
+    /* HEADER INTERNO */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
         padding: 20px 25px;
@@ -204,18 +202,15 @@ def abrir_modal_senha(usuario_cod):
 
 # --- TELAS ---
 def tela_login():
-    # Centralização com coluna do meio ligeiramente mais larga
+    # Centralização
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         
-        # O formulário agora é a própria caixa branca sólida (definido no CSS)
         with st.form("frm_login"):
-            # LOGO DENTRO DA CAIXA BRANCA
             img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
             st.markdown(f'<div style="text-align: center; margin-bottom: 25px;"><img src="{img_b64}" style="width: 220px;"></div>', unsafe_allow_html=True)
             
-            # CAMPOS E BOTÃO
             u = st.text_input("Usuário", placeholder="Digite seu login")
             s = st.text_input("Senha", type="password", placeholder="Digite sua senha")
             st.markdown("<br>", unsafe_allow_html=True)
@@ -231,7 +226,7 @@ def tela_login():
                     st.rerun()
                 else: st.toast("Dados incorretos!", icon="❌")
         
-        # FERRAMENTA HASH (Fora da caixa principal, discreta)
+        # FERRAMENTA HASH (Discreta)
         with st.expander("🛠️ Admin: Gerar Hash de Senha"):
             st.caption("Gere o código seguro para colar na planilha")
             pass_to_hash = st.text_input("Senha normal:", key="hash_gen")
@@ -290,11 +285,15 @@ def tela_principal():
     with col_acoes:
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(f'<div style="text-align:center; margin-bottom: 10px; padding-top: 5px;"><img src="{img_b64}" style="max-height: 70px;"></div>', unsafe_allow_html=True)
-        c_vazio, c_senha, c_sair, c_vazio2 = st.columns([0.05, 1, 1, 0.05], gap="small")
+        
+        # --- BOTÕES ALINHADOS LADO A LADO ---
+        # Duas colunas iguais para centralizar
+        c_senha, c_sair = st.columns([1, 1]) 
         with c_senha: 
-            if st.button("Senha", key="b_senha"): abrir_modal_senha(u_cod)
+            # use_container_width=True garante que preencha a coluna e alinhe
+            if st.button("Alterar Senha", key="b_senha", use_container_width=True): abrir_modal_senha(u_cod)
         with c_sair: 
-            if st.button("Sair", type="primary"): st.session_state['logado']=False; st.rerun()
+            if st.button("Encerrar Sessão", type="primary", use_container_width=True): st.session_state['logado']=False; st.rerun()
     
     st.divider()
     
