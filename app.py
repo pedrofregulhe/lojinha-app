@@ -3,29 +3,32 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import time
+import base64 # <--- Nova biblioteca para tratar a imagem local
 
 # --- CONFIGURAÇÕES GERAIS ---
 st.set_page_config(page_title="Portal de Prêmios", layout="wide", page_icon="🎁")
 
-# COLOCAR AQUI O LINK DA SUA LOGO (Pode ser do site da empresa ou Google Drive)
-URL_LOGO = "logo.png" 
+# NOME DO ARQUIVO DA SUA LOGO (Deve estar na mesma pasta do script)
+ARQUIVO_LOGO = "logo.png"
 
-# --- ESTILIZAÇÃO (CSS PREMIUM) ---
+# --- FUNÇÃO AUXILIAR PARA IMAGEM LOCAL (Resolve o problema do desfoque) ---
+def carregar_logo_base64(caminho_arquivo):
+    try:
+        with open(caminho_arquivo, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        return f"data:image/png;base64,{encoded_string}"
+    except Exception:
+        # Se não achar a imagem, retorna um link genérico
+        return "https://cdn-icons-png.flaticon.com/512/6213/6213388.png"
+
+# --- ESTILIZAÇÃO (CSS) ---
 st.markdown("""
     <style>
-    /* Importando fonte mais moderna */
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
+    .stApp { background-color: #f4f8fb; }
 
-    html, body, [class*="css"] {
-        font-family: 'Roboto', sans-serif;
-    }
-
-    /* Fundo Geral */
-    .stApp {
-        background-color: #f4f8fb; /* Cinza azulado bem claro */
-    }
-
-    /* Cabeçalho Personalizado */
+    /* Header Degradê */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
         padding: 25px;
@@ -33,62 +36,25 @@ st.markdown("""
         color: white;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         margin-bottom: 25px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+        display: flex; justify-content: space-between; align-items: center;
     }
 
-    /* Cards dos Prêmios */
-    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
-        background-color: white;
-        border-radius: 15px;
-        padding: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        transition: transform 0.2s, box-shadow 0.2s;
-        border: 1px solid #e1e4e8;
-    }
-
-    /* Efeito Hover no Card */
-    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"]:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-    }
-
-    /* Imagens dos Prêmios */
+    /* --- ESTILO DOS PRODUTOS APENAS --- */
+    /* Isso garante que só as imagens "normais" do Streamlit sejam afetadas, 
+       a logo via HTML ficará protegida */
     [data-testid="stImage"] img {
         height: 180px !important;
         object-fit: contain !important;
         width: 100% !important;
         border-radius: 10px;
-        margin-bottom: 10px;
     }
 
     /* Botões */
     div.stButton > button {
-        background-color: #0066cc;
-        color: white;
-        border-radius: 20px;
-        border: none;
-        padding: 10px 20px;
-        font-weight: bold;
-        width: 100%;
-        transition: background-color 0.3s;
+        background-color: #0066cc; color: white; border-radius: 20px; border: none;
+        padding: 10px 20px; font-weight: bold; width: 100%; transition: 0.3s;
     }
-    div.stButton > button:hover {
-        background-color: #004080;
-        color: white;
-    }
-
-    /* Inputs (Login e Busca) */
-    .stTextInput input {
-        border-radius: 10px;
-        border: 1px solid #ced4da;
-    }
-    
-    /* Títulos */
-    h1, h2, h3 {
-        color: #2c3e50;
-    }
+    div.stButton > button:hover { background-color: #004080; color: white; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -96,305 +62,172 @@ st.markdown("""
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- SESSÃO ---
-if 'logado' not in st.session_state:
-    st.session_state['logado'] = False
-if 'usuario_cod' not in st.session_state:
-    st.session_state['usuario_cod'] = ""
-if 'usuario_nome' not in st.session_state:
-    st.session_state['usuario_nome'] = ""
-if 'tipo_usuario' not in st.session_state:
-    st.session_state['tipo_usuario'] = "comum"
-if 'saldo_atual' not in st.session_state:
-    st.session_state['saldo_atual'] = 0.0
+if 'logado' not in st.session_state: st.session_state['logado'] = False
+if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
+if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
+if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
+if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
-# --- FUNÇÕES ---
-
+# --- FUNÇÕES DE DADOS ---
 def carregar_dados(aba):
     return conn.read(worksheet=aba, ttl=0)
 
 def limpar_dado(dado):
     texto = str(dado).strip()
-    if texto.endswith('.0'):
-        texto = texto.replace('.0', '')
+    if texto.endswith('.0'): texto = texto.replace('.0', '')
     return texto
 
 def validar_login(user_input, pass_input):
     try:
         df = carregar_dados("usuarios")
         if df.empty: return False, None, None, 0
-        
         df['usuario'] = df['usuario'].astype(str)
         df['senha'] = df['senha'].astype(str)
-        
-        # Cria colunas de busca limpas
         df['u_busca'] = df['usuario'].apply(lambda x: limpar_dado(x).lower())
         df['s_busca'] = df['senha'].apply(lambda x: limpar_dado(x))
-        
         u_in = limpar_dado(user_input).lower()
         p_in = limpar_dado(pass_input)
         
-        user_found = df[
-            (df['u_busca'] == u_in) & 
-            (df['s_busca'] == p_in)
-        ]
-        
-        if not user_found.empty:
-            linha = user_found.iloc[0]
-            nome_real = linha['nome'] if 'nome' in df.columns else u_in
+        found = df[(df['u_busca'] == u_in) & (df['s_busca'] == p_in)]
+        if not found.empty:
+            linha = found.iloc[0]
+            nome = linha['nome'] if 'nome' in df.columns else u_in
             saldo = float(linha['saldo']) if 'saldo' in df.columns else 0.0
-            
-            tipo = "comum"
-            if 'tipo' in df.columns:
-                 tipo = str(linha['tipo']).lower()
-            elif u_in == "admin":
-                 tipo = "admin"
-                 
-            return True, nome_real, tipo, saldo
-            
+            tipo = str(linha['tipo']).lower() if 'tipo' in df.columns else ("admin" if u_in == "admin" else "comum")
+            return True, nome, tipo, saldo
         return False, None, None, 0
     except Exception as e:
-        st.error(f"Erro login: {e}")
-        return False, None, None, 0
+        st.error(f"Erro login: {e}"); return False, None, None, 0
 
 def alterar_senha(usuario_cod, nova_senha):
-    """Função para o usuário redefinir a própria senha"""
     try:
-        df_users = carregar_dados("usuarios")
-        
-        # Localiza o usuário
-        df_users['usuario_str'] = df_users['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
-        idx = df_users[df_users['usuario_str'] == usuario_cod.lower()].index
-        
-        if len(idx) == 0:
-            return False
-            
-        # Atualiza a senha
-        df_users.at[idx[0], 'senha'] = nova_senha
-        
-        # Remove coluna auxiliar e salva
-        if 'usuario_str' in df_users.columns:
-            df_users = df_users.drop(columns=['usuario_str'])
-            
-        conn.update(worksheet="usuarios", data=df_users)
+        df = carregar_dados("usuarios")
+        df['usuario_str'] = df['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
+        idx = df[df['usuario_str'] == usuario_cod.lower()].index
+        if len(idx) == 0: return False
+        df.at[idx[0], 'senha'] = nova_senha
+        if 'usuario_str' in df.columns: df = df.drop(columns=['usuario_str'])
+        conn.update(worksheet="usuarios", data=df)
         return True
-    except Exception as e:
-        st.error(f"Erro ao mudar senha: {e}")
-        return False
+    except: return False
 
 def processar_resgate(usuario_cod, item_nome, custo):
     try:
-        df_users = carregar_dados("usuarios")
-        df_users['usuario_str'] = df_users['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
-        idx_usuario = df_users[df_users['usuario_str'] == usuario_cod.lower()].index
+        df_u = carregar_dados("usuarios")
+        df_u['usuario_str'] = df_u['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
+        idx = df_u[df_u['usuario_str'] == usuario_cod.lower()].index
+        if len(idx) == 0: return False
         
-        if len(idx_usuario) == 0:
-            return False
+        saldo_banco = float(df_u.at[idx[0], 'saldo'])
+        if saldo_banco < custo:
+            st.toast(f"Saldo insuficiente!", icon="❌"); return False
             
-        indice = idx_usuario[0]
-        saldo_atual_banco = float(df_users.at[indice, 'saldo'])
+        df_u.at[idx[0], 'saldo'] = saldo_banco - custo
+        if 'usuario_str' in df_u.columns: df_u = df_u.drop(columns=['usuario_str'])
+        conn.update(worksheet="usuarios", data=df_u)
         
-        if saldo_atual_banco < custo:
-            st.toast(f"Saldo insuficiente! Faltam {custo - saldo_atual_banco} pts.", icon="❌")
-            return False
-            
-        novo_saldo = saldo_atual_banco - custo
-        df_users.at[indice, 'saldo'] = novo_saldo
-        
-        if 'usuario_str' in df_users.columns:
-            df_users = df_users.drop(columns=['usuario_str'])
-            
-        conn.update(worksheet="usuarios", data=df_users)
-        
-        df_vendas = carregar_dados("vendas")
-        nova_venda = pd.DataFrame([{
-            "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "Usuario": usuario_cod,
-            "Item": item_nome,
-            "Valor": custo
-        }])
-        df_final_vendas = pd.concat([df_vendas, nova_venda], ignore_index=True)
-        conn.update(worksheet="vendas", data=df_final_vendas)
-        
-        st.session_state['saldo_atual'] = novo_saldo
+        df_v = carregar_dados("vendas")
+        nova = pd.DataFrame([{"Data": datetime.now().strftime("%d/%m/%Y %H:%M"), "Usuario": usuario_cod, "Item": item_nome, "Valor": custo}])
+        conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
+        st.session_state['saldo_atual'] = saldo_banco - custo
         return True
-
-    except Exception as e:
-        st.error(f"Erro na transação: {e}")
-        return False
+    except Exception as e: st.error(f"Erro: {e}"); return False
 
 # --- TELAS ---
-
 def tela_login():
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Layout centralizado para login
     col1, col2, col3 = st.columns([1, 1.5, 1])
-    
     with col2:
-        # Container com fundo branco e sombra para o login
         with st.container(border=True):
-            # LOGO DA EMPRESA
-            st.image(URL_LOGO, width=150, use_container_width=False) 
+            # --- LOGO VIA HTML (PARA NÃO FICAR EMBASSADA) ---
+            img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
+            st.markdown(
+                f'<div style="text-align: center;">'
+                f'<img src="{img_b64}" style="width: 180px; max-width: 100%; height: auto;">'
+                f'</div>', 
+                unsafe_allow_html=True
+            )
+            # ------------------------------------------------
             st.markdown("<h3 style='text-align: center; color: #333;'>Portal de Prêmios</h3>", unsafe_allow_html=True)
-            
             with st.form("frm_login"):
-                u = st.text_input("Usuário", placeholder="Digite seu login")
-                s = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+                u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
                 st.markdown("<br>", unsafe_allow_html=True)
-                btn = st.form_submit_button("ACESSAR SISTEMA", use_container_width=True)
-                
-                if btn:
-                    with st.spinner("Verificando credenciais..."):
-                        ok, nome, tipo, saldo = validar_login(u, s)
-                        if ok:
-                            st.session_state['logado'] = True
-                            st.session_state['usuario_cod'] = u
-                            st.session_state['usuario_nome'] = nome
-                            st.session_state['tipo_usuario'] = tipo
-                            st.session_state['saldo_atual'] = saldo
-                            st.rerun()
-                        else:
-                            st.error("Login inválido.")
+                if st.form_submit_button("ACESSAR SISTEMA", use_container_width=True):
+                    ok, nome, tipo, saldo = validar_login(u, s)
+                    if ok:
+                        st.session_state['logado'] = True
+                        st.session_state['usuario_cod'] = u
+                        st.session_state['usuario_nome'] = nome
+                        st.session_state['tipo_usuario'] = tipo
+                        st.session_state['saldo_atual'] = saldo
+                        st.rerun()
+                    else: st.error("Login inválido.")
 
 def tela_principal():
-    user_cod = st.session_state['usuario_cod']
-    user_nome = st.session_state['usuario_nome']
+    u_cod = st.session_state['usuario_cod']
+    u_nome = st.session_state['usuario_nome']
     tipo = st.session_state['tipo_usuario']
     saldo = st.session_state['saldo_atual']
     
-    # --- CABEÇALHO MODERNO (HTML/CSS) ---
     st.markdown(f"""
         <div class="header-style">
-            <div>
-                <h2 style="margin:0; color: white; font-size: 24px;">Olá, {user_nome}! 👋</h2>
-                <p style="margin:0; opacity: 0.9;">Bem-vindo ao Clube de Vantagens</p>
-            </div>
-            <div style="text-align: right;">
-                <span style="font-size: 14px; opacity: 0.8;">SEU SALDO</span><br>
-                <span style="font-size: 32px; font-weight: bold;">{saldo:,.0f}</span> <span style="font-size: 18px;">pts</span>
-            </div>
+            <div><h2 style="margin:0; color: white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9;">Clube de Vantagens</p></div>
+            <div style="text-align: right;"><span style="font-size:14px;">SALDO ATUAL</span><br><span style="font-size:32px; font-weight:bold;">{saldo:,.0f}</span> pts</div>
         </div>
     """, unsafe_allow_html=True)
 
-    # --- MENU DE OPÇÕES (SIDEBAR) ---
     with st.sidebar:
-        st.image(URL_LOGO, width=100)
-        st.markdown(f"**Usuário:** {user_cod}")
-        st.markdown("---")
+        # LOGO NA LATERAL TAMBÉM VIA HTML
+        img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
+        st.markdown(f'<div style="text-align:center; margin-bottom:20px;"><img src="{img_b64}" style="width: 120px;"></div>', unsafe_allow_html=True)
         
-        # Opção de Mudar Senha (Expander)
-        with st.expander("🔐 Alterar Minha Senha"):
-            nova_senha = st.text_input("Nova Senha", type="password")
-            confirma_senha = st.text_input("Confirmar Senha", type="password")
-            if st.button("Salvar Nova Senha"):
-                if nova_senha == confirma_senha and len(nova_senha) > 0:
-                    if alterar_senha(user_cod, nova_senha):
-                        st.success("Senha alterada com sucesso!")
-                        time.sleep(1.5)
-                        st.session_state['logado'] = False # Força relogin por segurança
-                        st.rerun()
-                    else:
-                        st.error("Erro ao atualizar.")
-                else:
-                    st.warning("As senhas não coincidem ou estão vazias.")
-        
-        st.markdown("---")
-        if st.button("SAIR DO SISTEMA", type="primary"):
-            st.session_state['logado'] = False
-            st.rerun()
+        st.markdown(f"**Usuário:** {u_cod}")
+        with st.expander("🔐 Alterar Senha"):
+            n_senha = st.text_input("Nova Senha", type="password")
+            if st.button("Salvar") and alterar_senha(u_cod, n_senha):
+                st.success("Sucesso!"); time.sleep(1); st.session_state['logado']=False; st.rerun()
+        if st.button("SAIR", type="primary"): st.session_state['logado']=False; st.rerun()
 
-    # --- ADMIN VIEW ---
     if tipo == 'admin':
-        st.subheader("📊 Visão do Administrador")
+        st.subheader("Painel Admin")
         df_v = carregar_dados("vendas")
-        if not df_v.empty:
-            c1, c2 = st.columns(2)
-            c1.metric("Total Resgatado", f"{df_v['Valor'].sum():,.0f}")
-            c2.metric("Quantidade de Pedidos", len(df_v))
-            st.dataframe(df_v, use_container_width=True)
-        else:
-            st.info("Nenhum dado.")
-
-    # --- USER VIEW ---
+        if not df_v.empty: st.dataframe(df_v, use_container_width=True)
+        else: st.info("Sem dados.")
     else:
-        tab_premios, tab_extrato = st.tabs(["🎁 Catálogo de Prêmios", "📜 Histórico de Resgates"])
-        
-        with tab_premios:
-            try:
-                df_p = carregar_dados("premios")
+        tab1, tab2 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates"])
+        with tab1:
+            df_p = carregar_dados("premios")
+            if not df_p.empty:
+                busca = st.text_input("🔍 Buscar prêmio...", placeholder="Ex: Fone...")
+                if busca: df_p = df_p[df_p['item'].str.contains(busca, case=False, na=False)]
                 
-                if not df_p.empty:
-                    # --- BARRA DE BUSCA ---
-                    col_search, _ = st.columns([1, 1])
-                    with col_search:
-                        termo_busca = st.text_input("🔍 Buscar prêmio...", placeholder="Ex: Fone, Garrafa...")
-                    
-                    # Filtra o dataframe
-                    if termo_busca:
-                        # Filtra ignorando maiusculas/minusculas
-                        df_p = df_p[df_p['item'].str.contains(termo_busca, case=False, na=False)]
+                st.markdown("<br>", unsafe_allow_html=True)
+                cols = st.columns(3)
+                for i, row in df_p.iterrows():
+                    with cols[i % 3]:
+                        with st.container():
+                            if pd.notna(row.get('imagem')) and str(row['imagem']).startswith('http'):
+                                st.image(row['imagem'])
+                            else: st.image("https://via.placeholder.com/200?text=Sem+Imagem")
+                            
+                            st.markdown(f"#### {row['item']}")
+                            cor = "#0066cc" if saldo >= row['custo'] else "#999"
+                            st.markdown(f"<div style='color:{cor}; font-weight:bold; font-size:20px;'>{row['custo']} pts</div>", unsafe_allow_html=True)
+                            
+                            if saldo >= row['custo']:
+                                if st.button("RESGATAR", key=f"b_{row['id']}"):
+                                    with st.spinner("..."):
+                                        if processar_resgate(u_cod, row['item'], row['custo']):
+                                            st.balloons(); time.sleep(2); st.rerun()
+                            else: st.button(f"Falta {row['custo']-saldo:.0f}", disabled=True, key=f"d_{row['id']}")
+            else: st.warning("Vazio.")
+        
+        with tab2:
+            df_v = carregar_dados("vendas")
+            if not df_v.empty:
+                df_v['Usuario'] = df_v['Usuario'].astype(str)
+                st.dataframe(df_v[df_v['Usuario']==str(u_cod)][['Data','Item','Valor']], use_container_width=True, hide_index=True)
 
-                    # --- GRID DE PRODUTOS ---
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    
-                    if df_p.empty:
-                        st.warning("Nenhum prêmio encontrado com esse nome.")
-                    else:
-                        cols = st.columns(3) # Grid de 3 colunas
-                        for i, row in df_p.iterrows():
-                            c = cols[i % 3] # Distribui entre as colunas
-                            with c:
-                                with st.container(): # Container vira um "Card" pelo CSS
-                                    # Imagem
-                                    if 'imagem' in df_p.columns and pd.notna(row['imagem']) and str(row['imagem']).startswith('http'):
-                                        st.image(row['imagem'])
-                                    else:
-                                        st.image("https://via.placeholder.com/200?text=Sem+Imagem")
-                                    
-                                    # Info
-                                    st.markdown(f"#### {row['item']}")
-                                    st.caption(f"Valor para resgate:")
-                                    
-                                    # Destaque no preço
-                                    cor_preco = "#0066cc" if saldo >= row['custo'] else "#999"
-                                    st.markdown(f"<div style='font-size: 22px; color: {cor_preco}; font-weight: bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
-                                    st.markdown("<br>", unsafe_allow_html=True)
-
-                                    # Botão
-                                    if saldo >= row['custo']:
-                                        if st.button("RESGATAR AGORA", key=f"btn_{row['id']}"):
-                                            with st.spinner("Processando..."):
-                                                if processar_resgate(user_cod, row['item'], row['custo']):
-                                                    st.success("🎉 Resgate Confirmado!")
-                                                    st.balloons()
-                                                    time.sleep(2)
-                                                    st.rerun()
-                                    else:
-                                        falta = row['custo'] - saldo
-                                        st.button(f"Faltam {falta:.0f} pts", disabled=True, key=f"d_{row['id']}")
-
-                else:
-                    st.info("Catálogo vazio.")
-            except Exception as e:
-                st.error(f"Erro no catálogo: {e}")
-
-        with tab_extrato:
-            st.subheader("Meus Pedidos")
-            try:
-                df_v = carregar_dados("vendas")
-                if not df_v.empty:
-                    df_v['Usuario'] = df_v['Usuario'].astype(str)
-                    meus = df_v[df_v['Usuario'] == str(user_cod)]
-                    if not meus.empty:
-                        st.dataframe(meus[['Data', 'Item', 'Valor']], use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Você ainda não fez nenhum resgate.")
-            except:
-                st.error("Erro ao carregar histórico.")
-
-# --- MAIN ---
 if __name__ == "__main__":
-    if st.session_state['logado']:
-        tela_principal()
-    else:
-        tela_login()
+    if st.session_state['logado']: tela_principal()
+    else: tela_login()
