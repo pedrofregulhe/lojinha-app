@@ -6,7 +6,7 @@ import time
 import base64
 
 # --- CONFIGURAÇÕES GERAIS ---
-st.set_page_config(page_title="Portal de Prêmios", layout="wide", page_icon="🎁")
+st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 
 # NOME DO ARQUIVO DA SUA LOGO
 ARQUIVO_LOGO = "logo.png"
@@ -26,21 +26,17 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
     
-    /* Remove espaço extra do topo padrão do Streamlit */
-    .block-container {
-        padding-top: 2rem;
-    }
-
+    .block-container { padding-top: 2rem; }
     .stApp { background-color: #f4f8fb; }
 
     /* Header Degradê (Bloco Azul) */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
-        padding: 30px;
+        padding: 25px;
         border-radius: 15px;
         color: white;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        height: 100%;
+        height: 100%; /* Ocupa altura total para alinhar */
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -56,17 +52,25 @@ st.markdown("""
 
     /* Botões */
     div.stButton > button {
-        background-color: #0066cc; color: white; border-radius: 10px; border: none;
-        padding: 10px 20px; font-weight: bold; width: 100%; transition: 0.3s;
+        background-color: #0066cc; color: white; border-radius: 8px; border: none;
+        padding: 0px 10px; /* Padding reduzido para caber melhor */
+        height: 40px; /* Altura fixa para alinhar com inputs */
+        font-weight: bold; width: 100%; transition: 0.3s;
     }
     div.stButton > button:hover { background-color: #004080; color: white; }
     
-    /* Botão Sair (Vermelho discreto) */
+    /* Botão Sair (Vermelho discreto e alinhado) */
     .btn-sair > button {
         background-color: #ff4b4b !important;
+        margin-top: 2px; /* Pequeno ajuste visual para alinhar com o expander */
     }
-    .btn-sair > button:hover {
-        background-color: #c93030 !important;
+    .btn-sair > button:hover { background-color: #c93030 !important; }
+
+    /* Ajuste do Expander para ficar compacto */
+    [data-testid="stExpander"] {
+        background-color: white;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -81,7 +85,7 @@ if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
 if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
-# --- FUNÇÕES DE DADOS ---
+# --- FUNÇÕES ---
 def carregar_dados(aba):
     return conn.read(worksheet=aba, ttl=0)
 
@@ -175,19 +179,22 @@ def tela_principal():
     tipo = st.session_state['tipo_usuario']
     saldo = st.session_state['saldo_atual']
     
-    # --- LAYOUT DO TOPO (SEM SIDEBAR) ---
-    col_info, col_acoes = st.columns([3, 1])
+    # --- LAYOUT DO TOPO ---
+    # AJUSTE: Mudei para [2, 1] para dar mais espaço à direita e não cortar a logo
+    col_info, col_acoes = st.columns([2, 1])
     
-    # Coluna 1: Bloco Azul de Informações
+    # Coluna 1: Bloco Azul (Texto atualizado)
     with col_info:
         st.markdown(f"""
             <div class="header-style">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <h2 style="margin:0; color: white;">Olá, {u_nome}! 👋</h2>
-                        <p style="margin:0; opacity:0.9;">Clube de Vantagens</p>
+                    <div style="flex: 1;">
+                        <h2 style="margin:0; color: white; font-size: 26px;">Olá, {u_nome}! 👋</h2>
+                        <p style="margin-top: 5px; opacity:0.9; font-size: 16px; line-height: 1.4;">
+                            Bem Vindo (a) a Loja de Prêmios Culligan. Aproveite a lista de prêmios incríveis que você pode resgatar!
+                        </p>
                     </div>
-                    <div style="text-align: right;">
+                    <div style="text-align: right; min-width: 120px; margin-left: 15px;">
                         <span style="font-size:14px; opacity:0.8;">SEU SALDO</span><br>
                         <span style="font-size:36px; font-weight:bold;">{saldo:,.0f}</span> <span style="font-size:20px;">pts</span>
                     </div>
@@ -195,36 +202,46 @@ def tela_principal():
             </div>
         """, unsafe_allow_html=True)
 
-    # Coluna 2: Logo e Botões (Alterar Senha e Sair)
+    # Coluna 2: Logo e Botões (Lado a Lado)
     with col_acoes:
-        # 1. Logo
+        # 1. Logo (Centralizada e com max-width para não cortar)
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
-        st.markdown(f'<div style="text-align:center; margin-bottom: 10px;"><img src="{img_b64}" style="width: 120px;"></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="text-align:center; margin-bottom: 15px;">'
+            f'<img src="{img_b64}" style="max-width: 100%; height: auto; max-height: 80px;">'
+            f'</div>', 
+            unsafe_allow_html=True
+        )
         
-        # 2. Alterar Senha (Expander)
-        with st.expander("🔐 Senha"):
-            nova_s = st.text_input("Nova senha", type="password", key="ns")
-            conf_s = st.text_input("Confirmar", type="password", key="cs")
-            if st.button("Salvar"):
-                if nova_s == conf_s and len(nova_s) > 0:
-                    if alterar_senha(u_cod, nova_s):
-                        st.success("Alterada!")
-                        time.sleep(1)
-                        st.session_state['logado'] = False
-                        st.rerun()
-                    else: st.error("Erro.")
-                else: st.warning("Senhas não batem.")
+        # 2. Botões lado a lado (Alterar Senha | Sair)
+        c_senha, c_sair = st.columns([1.5, 0.8]) # Proporção para caber o expander e o botão
         
-        # 3. Botão Sair
-        st.markdown('<div class="btn-sair">', unsafe_allow_html=True)
-        if st.button("Sair do Sistema"):
-            st.session_state['logado'] = False
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        with c_senha:
+            # Expander de Senha
+            with st.expander("🔐 Alterar Senha"):
+                nova_s = st.text_input("Nova senha", type="password", key="ns", label_visibility="collapsed", placeholder="Nova Senha")
+                conf_s = st.text_input("Confirmar", type="password", key="cs", label_visibility="collapsed", placeholder="Confirmar")
+                if st.button("Salvar", key="btn_salvar_senha"):
+                    if nova_s == conf_s and len(nova_s) > 0:
+                        if alterar_senha(u_cod, nova_s):
+                            st.success("Alterada!")
+                            time.sleep(1)
+                            st.session_state['logado'] = False
+                            st.rerun()
+                        else: st.error("Erro.")
+                    else: st.warning("Verifique.")
+        
+        with c_sair:
+            # Botão Sair
+            st.markdown('<div class="btn-sair">', unsafe_allow_html=True)
+            if st.button("Sair"):
+                st.session_state['logado'] = False
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
 
-    # --- ÁREA DE CONTEÚDO ---
+    # --- CONTEÚDO ---
     if tipo == 'admin':
         st.subheader("Painel Admin")
         df_v = carregar_dados("vendas")
