@@ -225,17 +225,12 @@ def tela_login():
                     st.session_state['saldo_atual'] = saldo
                     st.rerun()
                 else: st.toast("Dados incorretos!", icon="❌")
-        
-        # FERRAMENTA HASH (Discreta)
-        with st.expander("🛠️ Admin: Gerar Hash de Senha"):
-            st.caption("Gere o código seguro para colar na planilha")
-            pass_to_hash = st.text_input("Senha normal:", key="hash_gen")
-            if pass_to_hash:
-                st.code(gerar_hash(pass_to_hash), language="text")
 
 def tela_admin():
     st.subheader("🛠️ Painel Super Admin")
-    t1, t2, t3 = st.tabs(["📊 Dashboard", "👥 Usuários", "🎁 Prêmios"])
+    # ADICIONEI A 4ª ABA AQUI: Ferramentas
+    t1, t2, t3, t4 = st.tabs(["📊 Dashboard", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
+    
     with t1:
         df_v = carregar_dados("vendas")
         if not df_v.empty:
@@ -258,6 +253,22 @@ def tela_admin():
         if st.button("Salvar Prêmios", type="primary"):
             salvar_alteracoes_admin("premios", df_p_edit)
             st.success("Salvo!"); time.sleep(1); st.rerun()
+    
+    # NOVA ABA DE FERRAMENTAS (Só o Admin vê)
+    with t4:
+        st.markdown("### 🔐 Gerador de Hash Seguro")
+        st.info("Use esta ferramenta para criar senhas seguras antes de colar na planilha do Google.")
+        
+        col_a, col_b = st.columns([1, 2])
+        with col_a:
+            senha_para_hash = st.text_input("Digite a senha normal:", placeholder="Ex: culligan2026")
+        
+        with col_b:
+            if senha_para_hash:
+                st.markdown("**Copie o código abaixo:**")
+                hash_gerado = gerar_hash(senha_para_hash)
+                st.code(hash_gerado, language="text")
+                st.caption("Cole este código na coluna 'senha' da aba Usuários.")
 
 def tela_principal():
     # Remove animação do fundo quando logado
@@ -286,11 +297,9 @@ def tela_principal():
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(f'<div style="text-align:center; margin-bottom: 10px; padding-top: 5px;"><img src="{img_b64}" style="max-height: 70px;"></div>', unsafe_allow_html=True)
         
-        # --- BOTÕES ALINHADOS LADO A LADO ---
-        # Duas colunas iguais para centralizar
+        # BOTÕES LADO A LADO
         c_senha, c_sair = st.columns([1, 1]) 
         with c_senha: 
-            # use_container_width=True garante que preencha a coluna e alinhe
             if st.button("Alterar Senha", key="b_senha", use_container_width=True): abrir_modal_senha(u_cod)
         with c_sair: 
             if st.button("Encerrar Sessão", type="primary", use_container_width=True): st.session_state['logado']=False; st.rerun()
