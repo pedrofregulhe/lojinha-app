@@ -26,7 +26,11 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
     
-    .block-container { padding-top: 1rem; } /* Reduzi o padding do topo */
+    /* 1. EMPURRAR O CONTEÚDO PARA BAIXO (Resolve o corte no topo) */
+    .block-container { 
+        padding-top: 5rem !important; /* Aumentei de 1rem para 5rem */
+    }
+    
     .stApp { background-color: #f4f8fb; }
 
     /* Header Degradê (Bloco Azul) */
@@ -59,27 +63,33 @@ st.markdown("""
     }
     div.stButton > button:hover { background-color: #004080; color: white; }
     
-    /* Botão Sair - Correção de Alinhamento e Cor */
+    /* 2. ALINHAMENTO DO BOTÃO SAIR */
     .btn-sair {
-        display: flex;
-        align-items: center; /* Centraliza verticalmente */
-        height: 100%;
-        padding-top: 2px;
+        margin-top: 2px; /* Pequeno ajuste fino */
     }
     .btn-sair > button {
         background-color: #ff4b4b !important;
-        min-height: 42px; /* Garante altura igual ao input do expander */
+        height: 44px !important; /* Mesma altura visual do Expander fechado */
+        line-height: 1.2;
     }
     .btn-sair > button:hover { background-color: #c93030 !important; }
 
-    /* Ajuste do Expander */
+    /* Ajuste do Expander (Senha) */
     [data-testid="stExpander"] {
         background-color: white;
         border-radius: 8px;
         border: 1px solid #e0e0e0;
+        box-shadow: none; /* Remove sombra padrão para alinhar com flat design */
+    }
+    /* Força o cabeçalho do expander a ter uma altura fixa parecida com o botão */
+    [data-testid="stExpander"] summary {
+        height: 44px !important; 
+        min-height: 44px !important;
+        padding-top: 0px;
+        padding-bottom: 0px;
+        align-items: center;
     }
     
-    /* Garante que a logo não ultrapasse a tela */
     .logo-container img {
         max-width: 100%;
         height: auto;
@@ -192,7 +202,7 @@ def tela_principal():
     saldo = st.session_state['saldo_atual']
     
     # --- LAYOUT DO TOPO ---
-    # AJUSTE: Proporção [3, 1.3] para dar mais espaço à direita
+    # Coluna maior para o texto azul, Coluna ajustada para logo+botões
     col_info, col_acoes = st.columns([3, 1.3])
     
     # Coluna 1: Bloco Azul
@@ -219,7 +229,7 @@ def tela_principal():
         # 1. Logo (Container com margem)
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(
-            f'<div class="logo-container" style="text-align:center; margin-bottom: 12px; padding-top: 5px;">'
+            f'<div class="logo-container" style="text-align:center; margin-bottom: 15px; padding-top: 5px;">'
             f'<img src="{img_b64}" style="max-height: 70px;">'
             f'</div>', 
             unsafe_allow_html=True
