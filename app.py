@@ -50,19 +50,23 @@ st.markdown("""
     header { visibility: hidden; }
     .stDeployButton { display: none; }
     
-    .stApp {
-        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
-        background-size: 400% 400%;
-        animation: gradient 15s ease infinite;
-    }
+    /* ANIMAÇÃO DE GRADIENTE (DEFINIÇÃO GLOBAL) */
     @keyframes gradient {
         0% { background-position: 0% 50%; }
         50% { background-position: 100% 50%; }
         100% { background-position: 0% 50%; }
     }
+
+    /* FUNDO DA TELA DE LOGIN */
+    .stApp {
+        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
+        background-size: 400% 400%;
+        animation: gradient 15s ease infinite;
+    }
     
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
 
+    /* CARD LOGIN */
     [data-testid="stForm"] {
         background-color: #ffffff; padding: 40px; border-radius: 20px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none;
@@ -70,8 +74,11 @@ st.markdown("""
     
     .stTextInput input { background-color: #f7f9fc; color: #333; border: 1px solid #e0e0e0; }
 
+    /* HEADER INTERNO COM GRADIENTE ANIMADO (NOVIDADE) */
     .header-style {
-        background: linear-gradient(90deg, #005c97 0%, #363795 100%);
+        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
+        background-size: 400% 400%;
+        animation: gradient 10s ease infinite; /* Animação exclusiva para a caixa */
         padding: 20px 25px; border-radius: 15px; color: white;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%;
     }
@@ -146,14 +153,14 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato):
             "Item": item_nome, 
             "Valor": custo, 
             "Status": "Pendente",
-            "Email": email_contato # <--- NOVO: Salva o e-mail na planilha
+            "Email": email_contato
         }])
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
         st.session_state['saldo_atual'] = saldo_b - custo
         return True
     except: return False
 
-# --- MODAIS (DIALOGS) ---
+# --- MODAIS ---
 @st.dialog("🔐 Alterar Senha")
 def abrir_modal_senha(usuario_cod):
     n = st.text_input("Nova Senha", type="password")
@@ -169,20 +176,13 @@ def abrir_modal_senha(usuario_cod):
 def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
     st.write(f"Você está resgatando: **{item_nome}** por **{custo} pts**.")
     email_contato = st.text_input("Informe o e-mail para envio do vale-presente:", placeholder="exemplo@email.com")
-    st.caption("Verifique se o e-mail está correto, pois o código será enviado para ele.")
-    
     if st.button("CONFIRMAR RESGATE", type="primary", use_container_width=True):
         if "@" in email_contato and "." in email_contato:
-            with st.spinner("Processando..."):
-                if salvar_venda(usuario_cod, item_nome, custo, email_contato):
-                    st.success("Pedido realizado com sucesso!")
-                    st.balloons()
-                    time.sleep(2)
-                    st.rerun()
-                else:
-                    st.error("Erro ao processar. Tente novamente.")
-        else:
-            st.warning("Por favor, insira um e-mail válido.")
+            if salvar_venda(usuario_cod, item_nome, custo, email_contato):
+                st.success("Pedido realizado!")
+                st.balloons()
+                time.sleep(2); st.rerun()
+        else: st.warning("E-mail inválido.")
 
 # --- TELAS ---
 def tela_login():
@@ -198,7 +198,7 @@ def tela_login():
                 if ok:
                     st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld})
                     st.rerun()
-                else: st.toast("Erro de login!", icon="❌")
+                else: st.toast("Erro!", icon="❌")
 
 def tela_admin():
     st.subheader("🛠️ Painel Super Admin")
@@ -207,31 +207,27 @@ def tela_admin():
         df_v = carregar_dados("vendas")
         if not df_v.empty:
             edit_v = st.data_editor(df_v, use_container_width=True, hide_index=True, key="ed_vendas_admin")
-            if st.button("Salvar Status das Entregas", type="primary"):
-                conn.update(worksheet="vendas", data=edit_v); st.success("Atualizado!"); time.sleep(1); st.rerun()
+            if st.button("Salvar Status", type="primary"):
+                conn.update(worksheet="vendas", data=edit_v); st.success("Salvo!"); time.sleep(1); st.rerun()
     with t2:
-        df_u = carregar_dados("usuarios")
-        if not df_u.empty:
-            edit_u = st.data_editor(df_u, use_container_width=True, num_rows="dynamic", key="ed_usuarios_admin")
-            if st.button("Salvar Lista de Usuários", type="primary"):
-                conn.update(worksheet="usuarios", data=edit_u); st.success("Salvo!"); time.sleep(1); st.rerun()
+        df_u = carregar_dados("usuarios"); edit_u = st.data_editor(df_u, use_container_width=True, num_rows="dynamic", key="ed_usuarios")
+        if st.button("Salvar Usuários", type="primary"):
+            conn.update(worksheet="usuarios", data=edit_u); st.success("Salvo!"); time.sleep(1); st.rerun()
     with t3:
-        df_p = carregar_dados("premios")
-        if not df_p.empty:
-            edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_premios_admin")
-            if st.button("Salvar Catálogo de Prêmios", type="primary"):
-                conn.update(worksheet="premios", data=edit_p); st.success("Salvo!"); time.sleep(1); st.rerun()
+        df_p = carregar_dados("premios"); edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_premios")
+        if st.button("Salvar Prêmios", type="primary"):
+            conn.update(worksheet="premios", data=edit_p); st.success("Salvo!"); time.sleep(1); st.rerun()
     with t4:
-        sh = st.text_input("Digite a senha para gerar o código seguro")
-        if sh: st.code(gerar_hash(sh))
+        sh = st.text_input("Gerar Hash:"); st.code(gerar_hash(sh)) if sh else None
 
 def tela_principal():
+    # FUNDO LIMPO PARA O RESTANTE DO APP
     st.markdown('<style>.stApp {background: #f4f8fb; animation: none;}</style>', unsafe_allow_html=True)
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
     col_info, col_acoes = st.columns([3, 1.1])
     with col_info:
-        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan! Aqui você pode trocar seus pontos acumulados por prêmios incríveis, aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     with col_acoes:
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
@@ -254,29 +250,17 @@ def tela_principal():
                     with cols[i % 4]:
                         with st.container(border=True):
                             img = str(row.get('imagem', ''))
-                            if img and img != "0" and len(img) > 10: st.image(converter_link_drive(img))
-                            else: st.image("https://via.placeholder.com/200?text=Sem+Imagem")
+                            st.image(converter_link_drive(img)) if img and img != "0" else st.image("https://via.placeholder.com/200")
                             st.markdown(f"**{row['item']}**")
                             cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            # --- TEXTO EXPLICATIVO (NOVO) ---
-            st.info("""
-            ### 📜 Acompanhamento de Pedidos
-            Seu pedido foi realizado com sucesso e já está em nosso sistema! 🚀  
-            
-            **Informações importantes:**
-            * O prazo para entrega dos vales-presente é de até **5 dias úteis**.
-            * Os presentes serão enviados diretamente para o **e-mail** informado no momento do resgate.
-            * Você pode acompanhar o progresso de cada pedido na coluna **Status** abaixo.
-            """)
-            
+            st.info("### 📜 Acompanhamento\nEntrega em até **5 dias úteis** via e-mail.")
             df_v = carregar_dados("vendas")
             if not df_v.empty:
                 meus = df_v[df_v['Usuario'].astype(str)==str(u_cod)]
-                # Mostra também o e-mail para o usuário conferir onde vai receber
                 st.dataframe(meus[['Data','Item','Valor','Status','Email']], use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
