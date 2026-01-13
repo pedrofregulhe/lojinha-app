@@ -57,12 +57,19 @@ st.markdown("""
     }
 
     .stApp {
-        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
-        background-size: 400% 400%;
-        animation: gradient 15s ease infinite;
+        background: #f4f8fb;
     }
     
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
+
+    /* CARD LOGIN (Fundo gradiente apenas aqui) */
+    .login-bg {
+        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
+        background-size: 400% 400%;
+        animation: gradient 15s ease infinite;
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: -1;
+    }
 
     [data-testid="stForm"] {
         background-color: #ffffff; padding: 40px; border-radius: 20px;
@@ -71,6 +78,7 @@ st.markdown("""
     
     .stTextInput input { background-color: #f7f9fc; color: #333; border: 1px solid #e0e0e0; }
 
+    /* HEADER INTERNO COM GRADIENTE ANIMADO */
     .header-style {
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
         background-size: 400% 400%;
@@ -177,6 +185,7 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
 
 # --- TELAS ---
 def tela_login():
+    st.markdown('<div class="login-bg"></div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -212,7 +221,6 @@ def tela_admin():
         sh = st.text_input("Gerar Hash:"); st.code(gerar_hash(sh)) if sh else None
 
 def tela_principal():
-    st.markdown('<style>.stApp {background: #f4f8fb; animation: none;}</style>', unsafe_allow_html=True)
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
     col_info, col_acoes = st.columns([3, 1.1])
@@ -239,20 +247,28 @@ def tela_principal():
                 for i, row in df_p.iterrows():
                     with cols[i % 4]:
                         with st.container(border=True):
-                            # --- CORREÇÃO DO ERRO AQUI ---
                             img = str(row.get('imagem', '')).strip()
                             if img and img != "0" and len(img) > 10:
                                 st.image(converter_link_drive(img))
                             else:
                                 st.image("https://via.placeholder.com/200")
-                            # -----------------------------
                             st.markdown(f"**{row['item']}**")
                             cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            st.info("### 📜 Acompanhamento\nEntrega em até **5 dias úteis** via e-mail.")
+            # --- TEXTO RESTAURADO AQUI ---
+            st.info("""
+            ### 📜 Acompanhamento de Pedidos
+            Seu pedido foi realizado com sucesso e já está em nosso sistema! 🚀  
+            
+            **Informações importantes:**
+            * O prazo para entrega dos vales-presente é de até **5 dias úteis**.
+            * Você pode acompanhar o progresso de cada pedido através do seu login.
+            * Os presentes serão enviados diretamente para o **e-mail** informado no momento do resgate.
+            """)
+            
             df_v = carregar_dados("vendas")
             if not df_v.empty:
                 meus = df_v[df_v['Usuario'].astype(str)==str(u_cod)]
