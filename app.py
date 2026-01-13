@@ -41,62 +41,64 @@ def converter_link_drive(url):
         except: return url
     return url
 
-# --- ESTILIZAÇÃO (CSS) ---
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
-    
-    header { visibility: hidden; }
-    .stDeployButton { display: none; }
-    
-    @keyframes gradient {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-
+# --- ESTILIZAÇÃO DINÂMICA (CSS) ---
+# O fundo muda se o usuário estiver logado ou não
+if not st.session_state.get('logado', False):
+    bg_style = """
     .stApp {
-        background: #f4f8fb;
-    }
-    
-    .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
-
-    /* CARD LOGIN (Fundo gradiente apenas aqui) */
-    .login-bg {
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
         background-size: 400% 400%;
         animation: gradient 15s ease infinite;
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        z-index: -1;
     }
+    """
+else:
+    bg_style = ".stApp { background-color: #f4f8fb; }"
 
-    [data-testid="stForm"] {
+st.markdown(f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+    html, body, [class*="css"] {{ font-family: 'Roboto', sans-serif; }}
+    
+    header {{ visibility: hidden; }}
+    .stDeployButton {{ display: none; }}
+    
+    @keyframes gradient {{
+        0% {{ background-position: 0% 50%; }}
+        50% {{ background-position: 100% 50%; }}
+        100% {{ background-position: 0% 50%; }}
+    }}
+
+    {bg_style}
+    
+    .block-container {{ padding-top: 2rem !important; padding-bottom: 2rem !important; }}
+
+    /* CARD LOGIN */
+    [data-testid="stForm"] {{
         background-color: #ffffff; padding: 40px; border-radius: 20px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none;
-    }
+    }}
     
-    .stTextInput input { background-color: #f7f9fc; color: #333; border: 1px solid #e0e0e0; }
+    .stTextInput input {{ background-color: #f7f9fc; color: #333; border: 1px solid #e0e0e0; }}
 
-    /* HEADER INTERNO COM GRADIENTE ANIMADO */
-    .header-style {
+    /* HEADER INTERNO COM GRADIENTE ANIMADO SEMPRE */
+    .header-style {{
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
         background-size: 400% 400%;
         animation: gradient 10s ease infinite;
         padding: 20px 25px; border-radius: 15px; color: white;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%;
-    }
+    }}
 
-    [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
+    [data-testid="stImage"] img {{ height: 150px !important; object-fit: contain !important; border-radius: 10px; }}
 
-    div.stButton > button[kind="secondary"] {
+    div.stButton > button[kind="secondary"] {{
         background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; transition: 0.3s;
-    }
-    div.stButton > button[kind="primary"] {
+    }}
+    div.stButton > button[kind="primary"] {{
         background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%;
-    }
+    }}
 
-    .btn-container-alinhado { margin-top: -10px; }
+    .btn-container-alinhado {{ margin-top: -10px; }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -185,7 +187,6 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
 
 # --- TELAS ---
 def tela_login():
-    st.markdown('<div class="login-bg"></div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -225,7 +226,7 @@ def tela_principal():
     
     col_info, col_acoes = st.columns([3, 1.1])
     with col_info:
-        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode realizar a troca dos seus pontos por prêmios incríveis e acompanhar seus pedidos!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.Aqui você pode realizar a troca dos seus pontos por prêmios incríveis e acompanhar seus pedidos!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     with col_acoes:
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
@@ -258,7 +259,6 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            # --- TEXTO RESTAURADO AQUI ---
             st.info("""
             ### 📜 Acompanhamento de Pedidos
             Seu pedido foi realizado com sucesso e já está em nosso sistema! 🚀  
