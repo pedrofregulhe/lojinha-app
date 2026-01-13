@@ -50,14 +50,12 @@ st.markdown("""
     header { visibility: hidden; }
     .stDeployButton { display: none; }
     
-    /* ANIMAÇÃO DE GRADIENTE (DEFINIÇÃO GLOBAL) */
     @keyframes gradient {
         0% { background-position: 0% 50%; }
         50% { background-position: 100% 50%; }
         100% { background-position: 0% 50%; }
     }
 
-    /* FUNDO DA TELA DE LOGIN */
     .stApp {
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
         background-size: 400% 400%;
@@ -66,7 +64,6 @@ st.markdown("""
     
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
 
-    /* CARD LOGIN */
     [data-testid="stForm"] {
         background-color: #ffffff; padding: 40px; border-radius: 20px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none;
@@ -74,11 +71,10 @@ st.markdown("""
     
     .stTextInput input { background-color: #f7f9fc; color: #333; border: 1px solid #e0e0e0; }
 
-    /* HEADER INTERNO COM GRADIENTE ANIMADO (NOVIDADE) */
     .header-style {
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
         background-size: 400% 400%;
-        animation: gradient 10s ease infinite; /* Animação exclusiva para a caixa */
+        animation: gradient 10s ease infinite;
         padding: 20px 25px; border-radius: 15px; color: white;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%;
     }
@@ -88,12 +84,9 @@ st.markdown("""
     div.stButton > button[kind="secondary"] {
         background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; transition: 0.3s;
     }
-    div.stButton > button[kind="secondary"]:hover { background-color: #004080; color: white; }
-    
     div.stButton > button[kind="primary"] {
         background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%;
     }
-    div.stButton > button[kind="primary"]:hover { background-color: #c93030 !important; }
 
     .btn-container-alinhado { margin-top: -10px; }
     </style>
@@ -179,9 +172,7 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
     if st.button("CONFIRMAR RESGATE", type="primary", use_container_width=True):
         if "@" in email_contato and "." in email_contato:
             if salvar_venda(usuario_cod, item_nome, custo, email_contato):
-                st.success("Pedido realizado!")
-                st.balloons()
-                time.sleep(2); st.rerun()
+                st.success("Pedido realizado!"); st.balloons(); time.sleep(2); st.rerun()
         else: st.warning("E-mail inválido.")
 
 # --- TELAS ---
@@ -221,7 +212,6 @@ def tela_admin():
         sh = st.text_input("Gerar Hash:"); st.code(gerar_hash(sh)) if sh else None
 
 def tela_principal():
-    # FUNDO LIMPO PARA O RESTANTE DO APP
     st.markdown('<style>.stApp {background: #f4f8fb; animation: none;}</style>', unsafe_allow_html=True)
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
@@ -249,8 +239,13 @@ def tela_principal():
                 for i, row in df_p.iterrows():
                     with cols[i % 4]:
                         with st.container(border=True):
-                            img = str(row.get('imagem', ''))
-                            st.image(converter_link_drive(img)) if img and img != "0" else st.image("https://via.placeholder.com/200")
+                            # --- CORREÇÃO DO ERRO AQUI ---
+                            img = str(row.get('imagem', '')).strip()
+                            if img and img != "0" and len(img) > 10:
+                                st.image(converter_link_drive(img))
+                            else:
+                                st.image("https://via.placeholder.com/200")
+                            # -----------------------------
                             st.markdown(f"**{row['item']}**")
                             cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
