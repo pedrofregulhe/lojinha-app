@@ -93,9 +93,9 @@ st.markdown("""
     }
     div.stButton > button[kind="primary"]:hover { background-color: #c93030 !important; }
 
-    /* AJUSTE PARA DESCER OS BOTÕES */
+    /* AJUSTE PARA SUBIR UM POUCO OS BOTÕES */
     .btn-container-alinhado {
-        margin-top: 15px;
+        margin-top: 8px; /* Reduzido de 15px para 8px para alinhar perfeitamente */
     }
     </style>
 """, unsafe_allow_html=True)
@@ -217,13 +217,13 @@ def tela_principal():
         st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     with col_acoes:
-        # LOGO MAIOR (max-height 95px)
+        # LOGO MAIOR (max-height 110px)
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
-        st.markdown(f'<center><img src="{img_b64}" style="max-height: 95px;"></center>', unsafe_allow_html=True)
+        st.markdown(f'<center><img src="{img_b64}" style="max-height: 110px;"></center>', unsafe_allow_html=True)
         
         # CONTAINER DE BOTÕES COM AJUSTE DE MARGEM PARA ALINHAR À BASE
         st.markdown('<div class="btn-container-alinhado">', unsafe_allow_html=True)
-        cs, cl = st.columns([1.1, 1]) # Ajuste para caber o texto maior
+        cs, cl = st.columns([1.1, 1])
         if cs.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
         if cl.button("Encerrar Sessão", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
