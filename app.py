@@ -41,13 +41,16 @@ def converter_link_drive(url):
         except: return url
     return url
 
-# --- ESTILIZAÇÃO ---
+# --- ESTILIZAÇÃO (CSS) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
+    
     header { visibility: hidden; }
     .stDeployButton { display: none; }
+    
+    /* LOGIN GRADIENTE */
     .stApp {
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
         background-size: 400% 400%;
@@ -58,15 +61,42 @@ st.markdown("""
         50% { background-position: 100% 50%; }
         100% { background-position: 0% 50%; }
     }
+    
+    .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
+
+    /* CARD LOGIN */
+    [data-testid="stForm"] {
+        background-color: #ffffff; padding: 40px; border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none;
+    }
+    
+    .stTextInput input { background-color: #f7f9fc; color: #333; border: 1px solid #e0e0e0; }
+
+    /* HEADER INTERNO */
     .header-style {
         background: linear-gradient(90deg, #005c97 0%, #363795 100%);
         padding: 20px 25px; border-radius: 15px; color: white;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%;
     }
-    [data-testid="stForm"] { background-color: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+
+    /* IMAGENS DO CATÁLOGO */
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
-    div.stButton > button[kind="secondary"] { background-color: #0066cc; color: white; border-radius: 8px; font-weight: bold; height: 40px; width: 100%; }
-    div.stButton > button[kind="primary"] { background-color: #ff4b4b !important; color: white !important; border-radius: 8px; font-weight: bold; height: 40px; width: 100%; }
+
+    /* BOTÕES GERAIS */
+    div.stButton > button[kind="secondary"] {
+        background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; transition: 0.3s;
+    }
+    div.stButton > button[kind="secondary"]:hover { background-color: #004080; color: white; }
+    
+    div.stButton > button[kind="primary"] {
+        background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%;
+    }
+    div.stButton > button[kind="primary"]:hover { background-color: #c93030 !important; }
+
+    /* AJUSTE PARA DESCER OS BOTÕES */
+    .btn-container-alinhado {
+        margin-top: 15px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -81,10 +111,8 @@ if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
 # --- LÓGICA DE DADOS ---
 def carregar_dados(aba):
-    try:
-        return conn.read(worksheet=aba, ttl=0)
-    except:
-        return pd.DataFrame()
+    try: return conn.read(worksheet=aba, ttl=0)
+    except: return pd.DataFrame()
 
 def limpar_dado(dado): 
     texto = str(dado).strip()
@@ -96,11 +124,8 @@ def validar_login(user_input, pass_input):
     if df.empty: return False, None, None, 0
     u_in = limpar_dado(user_input).lower()
     pass_in = limpar_dado(pass_input)
-    
-    # Criamos uma cópia para não mexer no original da planilha
     df_temp = df.copy()
     df_temp['u_busca'] = df_temp['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
-    
     user_row = df_temp[df_temp['u_busca'] == u_in]
     if not user_row.empty:
         linha = user_row.iloc[0]
@@ -116,20 +141,15 @@ def processar_resgate(usuario_cod, item_nome, custo):
         df_u = carregar_dados("usuarios")
         df_u_temp = df_u.copy()
         df_u_temp['u_s'] = df_u_temp['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
-        
         idx = df_u_temp[df_u_temp['u_s'] == usuario_cod.lower()].index
         if len(idx) == 0: return False
-        
         saldo_b = float(df_u.at[idx[0], 'saldo'])
         if saldo_b < custo: return False
-        
         df_u.at[idx[0], 'saldo'] = saldo_b - custo
         conn.update(worksheet="usuarios", data=df_u)
-        
         df_v = carregar_dados("vendas")
         nova = pd.DataFrame([{"Data": datetime.now().strftime("%d/%m/%Y %H:%M"), "Usuario": usuario_cod, "Item": item_nome, "Valor": custo, "Status": "Pendente"}])
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
-        
         st.session_state['saldo_atual'] = saldo_b - custo
         return True
     except: return False
@@ -164,40 +184,27 @@ def tela_login():
 def tela_admin():
     st.subheader("🛠️ Painel Super Admin")
     t1, t2, t3, t4 = st.tabs(["📊 Dashboard & Entregas", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
-    
     with t1:
-        st.markdown("### 🚚 Gerenciar Pedidos")
         df_v = carregar_dados("vendas")
         if not df_v.empty:
-            if "Status" not in df_v.columns: df_v["Status"] = "Pendente"
+            c1, c2 = st.columns(2)
+            c1.metric("Total Pontos", f"{df_v['Valor'].sum():,.0f}"); c2.metric("Total Pedidos", len(df_v))
             edit_v = st.data_editor(df_v, use_container_width=True, hide_index=True, key="ed_vendas_admin")
-            if st.button("Salvar Status das Entregas", type="primary", key="btn_v"):
-                conn.update(worksheet="vendas", data=edit_v)
-                st.success("Status atualizados!"); time.sleep(1); st.rerun()
-        else: st.info("Nenhuma venda encontrada.")
-
+            if st.button("Salvar Status das Entregas", type="primary"):
+                conn.update(worksheet="vendas", data=edit_v); st.success("Atualizado!"); time.sleep(1); st.rerun()
     with t2:
-        st.markdown("### 👥 Gerenciar Usuários")
         df_u = carregar_dados("usuarios")
         if not df_u.empty:
             edit_u = st.data_editor(df_u, use_container_width=True, num_rows="dynamic", key="ed_usuarios_admin")
-            if st.button("Salvar Lista de Usuários", type="primary", key="btn_u"):
-                conn.update(worksheet="usuarios", data=edit_u)
-                st.success("Usuários salvos!"); time.sleep(1); st.rerun()
-        else: st.warning("Não foi possível carregar os usuários.")
-
+            if st.button("Salvar Lista de Usuários", type="primary"):
+                conn.update(worksheet="usuarios", data=edit_u); st.success("Salvo!"); time.sleep(1); st.rerun()
     with t3:
-        st.markdown("### 🎁 Gerenciar Catálogo")
         df_p = carregar_dados("premios")
         if not df_p.empty:
             edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_premios_admin")
-            if st.button("Salvar Catálogo de Prêmios", type="primary", key="btn_p"):
-                conn.update(worksheet="premios", data=edit_p)
-                st.success("Prêmios salvos!"); time.sleep(1); st.rerun()
-        else: st.warning("Não foi possível carregar os prêmios.")
-
+            if st.button("Salvar Catálogo de Prêmios", type="primary"):
+                conn.update(worksheet="premios", data=edit_p); st.success("Salvo!"); time.sleep(1); st.rerun()
     with t4:
-        st.markdown("### 🔐 Gerador de Hash")
         sh = st.text_input("Digite a senha para gerar o código seguro")
         if sh: st.code(gerar_hash(sh))
 
@@ -205,19 +212,24 @@ def tela_principal():
     st.markdown('<style>.stApp {background: #f4f8fb; animation: none;}</style>', unsafe_allow_html=True)
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
-    c_info, c_acoes = st.columns([3, 1.1])
-    with c_info:
-        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan! Aqui você pode trocar seus pontos por prêmios incríveis.</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
-    with c_acoes:
+    col_info, col_acoes = st.columns([3, 1.1])
+    with col_info:
+        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+    
+    with col_acoes:
+        # LOGO MAIOR (max-height 95px)
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
-        st.markdown(f'<center><img src="{img_b64}" height="70"></center>', unsafe_allow_html=True)
-        cs, cl = st.columns(2)
-        if cs.button("Senha", use_container_width=True): abrir_modal_senha(u_cod)
-        if cl.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
+        st.markdown(f'<center><img src="{img_b64}" style="max-height: 95px;"></center>', unsafe_allow_html=True)
+        
+        # CONTAINER DE BOTÕES COM AJUSTE DE MARGEM PARA ALINHAR À BASE
+        st.markdown('<div class="btn-container-alinhado">', unsafe_allow_html=True)
+        cs, cl = st.columns([1.1, 1]) # Ajuste para caber o texto maior
+        if cs.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
+        if cl.button("Encerrar Sessão", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
-    if tipo == 'admin':
-        tela_admin()
+    if tipo == 'admin': tela_admin()
     else:
         t1, t2 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates"])
         with t1:
@@ -234,14 +246,11 @@ def tela_principal():
                             cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
-                                if processar_resgate(u_cod, row['item'], row['custo']):
-                                    st.balloons(); time.sleep(1.5); st.rerun()
-            else: st.warning("Catálogo vazio.")
+                                if processar_resgate(u_cod, row['item'], row['custo']): st.balloons(); time.sleep(1.5); st.rerun()
         with t2:
             df_v = carregar_dados("vendas")
             if not df_v.empty:
-                df_v['Usuario'] = df_v['Usuario'].astype(str)
-                meus = df_v[df_v['Usuario']==str(u_cod)]
+                meus = df_v[df_v['Usuario'].astype(str)==str(u_cod)]
                 st.dataframe(meus[['Data','Item','Valor','Status']], use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
