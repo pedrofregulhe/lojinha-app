@@ -13,7 +13,7 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 
 ARQUIVO_LOGO = "logo.png"
 
-# --- FUNÇÕES DE SUPORTE E INTEGRAÇÃO ---
+# --- FUNÇÕES DE SUPORTE ---
 
 def carregar_logo_base64(caminho_arquivo):
     try:
@@ -44,18 +44,13 @@ def converter_link_drive(url):
     return url
 
 def formatar_telefone(tel_bruto):
-    """Limpa e garante o formato internacional para a Infobip"""
     apenas_numeros = re.sub(r'\D', '', str(tel_bruto))
-    # Se tiver 10 ou 11 dígitos, assume que é BR e adiciona 55
     if 10 <= len(apenas_numeros) <= 11:
         apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
 def enviar_whatsapp_template(telefone, parametros):
-    """
-    Envia MENSAGEM TEMPLATE via Infobip (Fura o bloqueio de 24h)
-    parametros: Lista de strings [Nome, Item, Codigo]
-    """
+    """Envia usando Template e pega erro detalhado"""
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
@@ -72,7 +67,7 @@ def enviar_whatsapp_template(telefone, parametros):
                         "templateName": "premios_campanhas_envio", 
                         "templateData": {
                             "body": {
-                                "placeholders": parametros 
+                                "placeholders": parametros # Lista [Nome, Item, Codigo]
                             }
                         },
                         "language": "pt_BR"
@@ -90,13 +85,12 @@ def enviar_whatsapp_template(telefone, parametros):
         response = requests.post(url, json=payload, headers=headers)
         
         if response.status_code not in [200, 201]:
-            st.error(f"⚠️ Erro Infobip ({response.status_code}): {response.text}")
-            return False
+            # Retorna o erro exato para mostrar na tela
+            return False, f"Erro {response.status_code}: {response.text}"
             
-        return True
+        return True, "Sucesso"
     except Exception as e:
-        st.error(f"⚠️ Erro Crítico de Conexão: {e}")
-        return False
+        return False, f"Erro de Conexão: {str(e)}"
 
 # --- SESSÃO ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
@@ -105,7 +99,7 @@ if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
 if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
-# --- ESTILIZAÇÃO DINÂMICA (CSS) ---
+# --- CSS ---
 if not st.session_state.get('logado', False):
     bg_style = ".stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }"
 else:
@@ -117,20 +111,11 @@ st.markdown(f"""
     html, body, [class*="css"] {{ font-family: 'Roboto', sans-serif; }}
     header {{ visibility: hidden; }}
     .stDeployButton {{ display: none; }}
-    @keyframes gradient {{ 
-        0% {{ background-position: 0% 50%; }} 
-        50% {{ background-position: 100% 50%; }} 
-        100% {{ background-position: 0% 50%; }} 
-    }}
+    @keyframes gradient {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
     {bg_style}
     .block-container {{ padding-top: 2rem !important; padding-bottom: 2rem !important; }}
     [data-testid="stForm"] {{ background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none; }}
-    .header-style {{
-        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2);
-        background-size: 400% 400%; animation: gradient 10s ease infinite;
-        padding: 20px 25px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        display: flex; flex-direction: column; justify-content: center; height: 100%;
-    }}
+    .header-style {{ background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 10s ease infinite; padding: 20px 25px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%; }}
     [data-testid="stImage"] img {{ height: 150px !important; object-fit: contain !important; border-radius: 10px; }}
     div.stButton > button[kind="secondary"] {{ background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
     div.stButton > button[kind="primary"] {{ background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
@@ -140,7 +125,6 @@ st.markdown(f"""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- LÓGICA DE DADOS ---
 def carregar_dados(aba):
     try: return conn.read(worksheet=aba, ttl=0)
     except: return pd.DataFrame()
@@ -154,7 +138,6 @@ def validar_login(user_input, pass_input):
     if df.empty: return False, None, None, 0
     u_in = limpar_dado(user_input).lower()
     df_temp = df.copy()
-    # Busca na coluna 'usuario' da aba Usuarios
     df_temp['u_busca'] = df_temp['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
     user_row = df_temp[df_temp['u_busca'] == u_in]
     if not user_row.empty:
@@ -165,24 +148,40 @@ def validar_login(user_input, pass_input):
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato):
     try:
+        # 1. Debita saldo
         df_u = carregar_dados("usuarios")
-        idx = df_u[df_u['usuario'].astype(str).str.lower() == usuario_cod.lower()].index
-        df_u.at[idx[0], 'saldo'] = float(df_u.at[idx[0], 'saldo']) - custo
+        # Procura o usuário para pegar dados completos (telefone e nome)
+        usuario_row = df_u[df_u['usuario'].astype(str).str.lower() == usuario_cod.lower()]
+        
+        if usuario_row.empty: return False
+        
+        idx = usuario_row.index[0]
+        telefone_user = str(usuario_row.at[idx, 'telefone']) # Pega o telefone do cadastro
+        nome_user = str(usuario_row.at[idx, 'nome'])         # Pega o nome do cadastro
+        
+        df_u.at[idx, 'saldo'] = float(df_u.at[idx, 'saldo']) - custo
         conn.update(worksheet="usuarios", data=df_u)
         
+        # 2. Registra Venda (AGORA COM NOME E TELEFONE)
         df_v = carregar_dados("vendas")
         nova = pd.DataFrame([{
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"), 
-            "Usuario": usuario_cod, # Aqui salva o ID do usuario
+            "Usuario": usuario_cod, 
             "Item": item_nome, 
             "Valor": custo, 
             "Status": "Pendente", 
-            "Email": email_contato
+            "Email": email_contato,
+            "NomeReal": nome_user,    # Nova Coluna
+            "Telefone": telefone_user # Nova Coluna
         }])
+        
+        # Concatena garantindo que as colunas existam
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
         st.session_state['saldo_atual'] -= custo
         return True
-    except: return False
+    except Exception as e:
+        print(e)
+        return False
 
 # --- MODAIS ---
 @st.dialog("🔐 Alterar Senha")
@@ -203,7 +202,7 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
     if st.button("CONFIRMAR", type="primary", use_container_width=True):
         if "@" in email_contato and "." in email_contato:
             if salvar_venda(usuario_cod, item_nome, custo, email_contato):
-                st.success("Sucesso!"); st.balloons(); time.sleep(2); st.rerun()
+                st.success("Sucesso! Compra registrada."); st.balloons(); time.sleep(2); st.rerun()
         else: st.warning("E-mail inválido.")
 
 # --- TELAS ---
@@ -230,93 +229,79 @@ def tela_admin():
         df_v = carregar_dados("vendas")
         
         if not df_v.empty:
-            # Insere coluna de checkbox temporária
-            if "Enviar" not in df_v.columns: 
-                df_v.insert(0, "Enviar", False)
+            if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
             
-            st.info("💡 Marque a caixa 'Enviar' para selecionar quem vai receber a mensagem. O sistema buscará o nome e telefone na aba Usuários.")
+            # Garante que as novas colunas existem no dataframe para visualização
+            if "Telefone" not in df_v.columns: df_v["Telefone"] = ""
+            if "NomeReal" not in df_v.columns: df_v["NomeReal"] = ""
             
-            # Tabela Editável
+            st.info("💡 As colunas 'Telefone' e 'NomeReal' devem estar preenchidas na planilha. Se estiverem vazias, preencha manualmente antes de enviar.")
+            
+            # Configuração das Colunas
+            col_config = {
+                "Enviar": st.column_config.CheckboxColumn("Enviar?", default=False),
+                "CodigoVale": st.column_config.TextColumn("Código do Vale (Obrigatório)"),
+                "Telefone": st.column_config.TextColumn("Telefone (Obrigatório)", help="Formato: 11999999999"),
+                "NomeReal": st.column_config.TextColumn("Nome na Mensagem")
+            }
+            
             edit_v = st.data_editor(
-                df_v, 
-                use_container_width=True, 
-                hide_index=True, 
-                key="ed_vendas_final_v3",
-                column_config={
-                    "Enviar": st.column_config.CheckboxColumn("Enviar?", default=False),
-                    "CodigoVale": st.column_config.TextColumn("CodigoVale (Obrigatório)")
-                }
+                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v4", column_config=col_config
             )
             
             if st.button("📤 Processar Envios", type="primary"):
-                # 1. Filtra só quem foi marcado
                 selecionados = edit_v[edit_v['Enviar'] == True]
                 
                 if selecionados.empty:
-                    st.warning("⚠️ Nenhuma linha marcada!")
+                    st.warning("Nenhuma linha selecionada.")
                 else:
-                    # 2. Carrega a aba Usuários para fazer o PROCV (busca)
-                    df_u = carregar_dados("usuarios")
-                    
-                    # Prepara a chave de busca (minúsculo e sem espaço)
-                    df_u['match_key'] = df_u['usuario'].astype(str).str.strip().str.lower()
-                    
                     enviados = 0
-                    erros_log = []
+                    erros = []
                     
-                    st.write("--- Iniciando Processamento ---")
                     barra = st.progress(0)
-                    total_linhas = len(selecionados)
+                    total = len(selecionados)
+                    
+                    st.write("--- Iniciando Envios ---")
                     
                     for i, (index, row) in enumerate(selecionados.iterrows()):
-                        barra.progress((i + 1) / total_linhas)
+                        barra.progress((i + 1) / total)
                         
-                        # A. Valida se o código do vale foi preenchido
-                        codigo_vale = str(row.get('CodigoVale', ''))
-                        if codigo_vale.lower() in ["", "nan", "none"]:
-                            msg = f"❌ Erro na linha (Item: {row['Item']}): Coluna 'CodigoVale' está vazia."
-                            st.write(msg)
-                            erros_log.append(msg)
+                        # 1. PEGA DADOS DIRETO DA LINHA (Sem PROCV)
+                        tel_destino = str(row.get('Telefone', '')).strip()
+                        nome_destino = str(row.get('NomeReal', '')).strip()
+                        # Se NomeReal estiver vazio, usa o Usuario como quebra-galho
+                        if not nome_destino or nome_destino == 'nan': nome_destino = str(row.get('Usuario', ''))
+                        
+                        item_venda = str(row.get('Item', ''))
+                        cod_vale = str(row.get('CodigoVale', ''))
+                        
+                        # 2. VALIDAÇÕES BÁSICAS
+                        if len(tel_destino) < 8 or tel_destino == 'nan':
+                            msg = f"❌ Erro: Telefone vazio na venda de {nome_destino}."
+                            st.write(msg); erros.append(msg)
                             continue
-                        
-                        # B. Pega o USUÁRIO da venda para procurar na outra aba
-                        id_usuario_venda = str(row['Usuario']).strip().lower()
-                        
-                        # C. Faz o PROCV (Busca na aba Usuários)
-                        u_encontrado = df_u[df_u['match_key'] == id_usuario_venda]
-                        
-                        if not u_encontrado.empty:
-                            # Achou! Pega os dados da aba Usuários
-                            telefone_destino = str(u_encontrado.iloc[0]['telefone'])
-                            nome_destino = str(u_encontrado.iloc[0]['nome'])
-                            item_venda = str(row['Item'])
                             
-                            # Valida telefone
-                            if len(telefone_destino) < 8:
-                                st.write(f"❌ Usuário '{nome_destino}' tem telefone inválido na aba Usuários.")
-                                continue
+                        if cod_vale == '' or cod_vale == 'nan':
+                            msg = f"❌ Erro: Código do vale vazio na venda de {nome_destino}."
+                            st.write(msg); erros.append(msg)
+                            continue
 
-                            # D. Envia
-                            # Template espera: {{1}}=Nome, {{2}}=Item, {{3}}=Codigo
-                            sucesso = enviar_whatsapp_template(telefone_destino, [nome_destino, item_venda, codigo_vale])
-                            
-                            if sucesso:
-                                enviados += 1
-                                st.write(f"✅ Enviado para {nome_destino} (Tel: {telefone_destino})")
-                            else:
-                                st.write(f"⚠️ Falha na API ao enviar para {nome_destino}.")
+                        # 3. ENVIA
+                        # Parametros: {{1}}=Nome, {{2}}=Item, {{3}}=Codigo
+                        sucesso, resposta = enviar_whatsapp_template(tel_destino, [nome_destino, item_venda, cod_vale])
+                        
+                        if sucesso:
+                            st.write(f"✅ Enviado para {nome_destino} ({tel_destino})")
+                            enviados += 1
                         else:
-                            st.write(f"❌ Não encontrei o usuário '{row['Usuario']}' na aba Usuários. Verifique se o nome de usuário está igual.")
-
+                            msg = f"⚠️ Erro API ({nome_destino}): {resposta}"
+                            st.write(msg); erros.append(msg)
+                            
                     if enviados > 0:
-                        st.success(f"Finalizado! {enviados} mensagens enviadas.")
-                        # Remove a coluna Enviar antes de salvar
+                        st.success(f"Concluído! {enviados} mensagens enviadas.")
                         edit_v_limpo = edit_v.drop(columns=["Enviar"])
                         conn.update(worksheet="vendas", data=edit_v_limpo)
-                        time.sleep(3)
-                        st.rerun()
-                    else:
-                        st.error("Nenhuma mensagem enviada. Verifique os erros acima.")
+                        time.sleep(3); st.rerun()
 
     with t2:
         df_u = carregar_dados("usuarios")
@@ -329,26 +314,13 @@ def tela_admin():
     
     with t4:
         st.markdown(f"### 🧪 Teste de Envio")
-        c_test1, c_test2 = st.columns([2, 1])
-        tel_teste = c_test1.text_input("Número para teste (com DDD)", placeholder="ex: 11999999999")
-        c1, c2, c3 = st.columns(3)
-        t_nome = c1.text_input("Dado 1 (Nome)", "Teste")
-        t_item = c2.text_input("Dado 2 (Item)", "Prêmio Teste")
-        t_cod = c3.text_input("Dado 3 (Código)", "TEST-000")
-        
-        if st.button("Enviar Teste Agora"):
+        c1, c2 = st.columns([2, 1])
+        tel_teste = c1.text_input("Número (com DDD)", placeholder="11999999999")
+        if c1.button("Testar Template Agora"):
             if tel_teste:
-                with st.spinner("Enviando template..."):
-                    sucesso = enviar_whatsapp_template(tel_teste, [t_nome, t_item, t_cod])
-                    if sucesso:
-                        st.success("✅ Sucesso!")
-                    else:
-                        st.error("❌ Falha.")
-            else:
-                st.warning("Preencha um número de telefone.")
-        st.divider()
-        sh = st.text_input("Gerar Hash Senha:")
-        st.code(gerar_hash(sh)) if sh else None
+                ok, resp = enviar_whatsapp_template(tel_teste, ["Teste", "Prêmio X", "COD-123"])
+                if ok: st.success("✅ Sucesso!")
+                else: st.error(f"❌ {resp}")
 
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
@@ -383,19 +355,14 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            st.info("""
-            ### 📜 Acompanhamento de Pedidos
-            Seu pedido foi realizado com sucesso e já está em nosso sistema! 🚀  
-            
-            **Informações importantes:**
-            * O prazo para entrega dos vales-presente é de até **5 dias úteis**.
-            * Você pode acompanhar o progresso de cada pedido através do seu login.
-            * Os presentes serão enviados diretamente para o **e-mail** informado no momento do resgate.
-            """)
+            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** via e-mail.")
             df_v = carregar_dados("vendas")
             if not df_v.empty:
                 meus = df_v[df_v['Usuario'].astype(str)==str(u_cod)]
-                st.dataframe(meus[['Data','Item','Valor','Status','Email']], use_container_width=True, hide_index=True)
+                if 'Status' in meus.columns:
+                    st.dataframe(meus[['Data','Item','Valor','Status','Email']], use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(meus, use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     if st.session_state.logado: tela_principal()
