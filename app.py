@@ -44,11 +44,20 @@ def converter_link_drive(url):
     return url
 
 def formatar_telefone(tel_bruto):
-    # Remove tudo que não é numero
-    apenas_numeros = re.sub(r'\D', '', str(tel_bruto))
-    # Se sobrar algo tipo "11999999999", poe o 55 na frente
+    # 1. Converte para texto
+    texto = str(tel_bruto).strip()
+    
+    # 2. CORREÇÃO CRÍTICA: Remove o .0 do Excel/Pandas ANTES de limpar
+    if texto.endswith(".0"):
+        texto = texto[:-2]  # Corta os dois últimos caracteres (.0)
+    
+    # 3. Remove tudo que não é número
+    apenas_numeros = re.sub(r'\D', '', texto)
+    
+    # 4. Adiciona o 55 se estiver faltando (Ex: 3499...)
     if 10 <= len(apenas_numeros) <= 11:
         apenas_numeros = "55" + apenas_numeros
+        
     return apenas_numeros
 
 def enviar_whatsapp_template(telefone, parametros):
@@ -60,9 +69,13 @@ def enviar_whatsapp_template(telefone, parametros):
         
         url = f"{base_url}/whatsapp/1/message/template"
         
-        # Limpa telefone final para envio
+        # Aplica a formatação corrigida
         tel_final = formatar_telefone(telefone)
         
+        # Validação extra de segurança
+        if len(tel_final) < 10:
+             return False, f"Número inválido após formatação: {tel_final}"
+
         payload = {
             "messages": [
                 {
@@ -92,7 +105,7 @@ def enviar_whatsapp_template(telefone, parametros):
         if response.status_code not in [200, 201]:
             return False, f"Erro API {response.status_code}: {response.text}"
             
-        return True, "Enviado com sucesso"
+        return True, f"Enviado para {tel_final}"
     except Exception as e:
         return False, f"Erro Conexão: {str(e)}"
 
@@ -235,17 +248,16 @@ def tela_admin():
     with t1:
         # Carrega dados
         df_v = carregar_dados("vendas")
-        df_u = carregar_dados("usuarios") # Precisamos disso para o "Plano B" de busca
+        df_u = carregar_dados("usuarios") 
 
         if not df_v.empty:
-            # Garante colunas no DataFrame (mesmo que vazias)
             cols_obrigatorias = ["Enviar", "CodigoVale", "Telefone", "NomeReal"]
             for col in cols_obrigatorias:
                 if col not in df_v.columns: 
                     df_v[col] = False if col == "Enviar" else ""
 
-            # Converte para string para evitar erro de tipo no Streamlit
-            df_v["Telefone"] = df_v["Telefone"].astype(str).replace(["nan", "None"], "")
+            # Conversão SEGURA para String (Remove .0 e nan)
+            df_v["Telefone"] = df_v["Telefone"].astype(str).replace(["nan", "None"], "").apply(limpar_dado)
             df_v["NomeReal"] = df_v["NomeReal"].astype(str).replace(["nan", "None"], "")
             df_v["CodigoVale"] = df_v["CodigoVale"].astype(str).replace(["nan", "None"], "")
 
@@ -259,7 +271,7 @@ def tela_admin():
             }
             
             edit_v = st.data_editor(
-                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v6", column_config=col_config
+                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v7", column_config=col_config
             )
             
             if st.button("📤 Processar Envios", type="primary"):
@@ -286,11 +298,10 @@ def tela_admin():
                         
                         # 2. Se estiver vazio na venda, busca na aba Usuários (Plano B)
                         origem_dados = "Venda"
-                        if len(tel_final) < 8:
+                        if len(formatar_telefone(tel_final)) < 10:
                             origem_dados = "Cadastro Usuários"
                             st.caption(f"🔎 Buscando dados de '{usuario_id}' na aba Usuários...")
                             
-                            # Busca segura (lowercase e strip)
                             df_u['key'] = df_u['usuario'].astype(str).str.strip().str.lower()
                             match = df_u[df_u['key'] == usuario_id.lower()]
                             
@@ -305,8 +316,11 @@ def tela_admin():
                         cod_vale = str(row['CodigoVale']).strip()
                         item_venda = str(row['Item']).strip()
                         
-                        if len(tel_final) < 8:
-                            st.error(f"❌ '{usuario_id}': Telefone inválido/vazio ({tel_final}).")
+                        # Testa formatação antes de enviar
+                        tel_formatado = formatar_telefone(tel_final)
+                        
+                        if len(tel_formatado) < 12: # 55 + DD + 8 digitos = 12 min
+                            st.error(f"❌ '{usuario_id}': Telefone inválido ({tel_final} -> {tel_formatado}). Verifique se tem DDD.")
                             continue
                             
                         if cod_vale == "":
@@ -317,14 +331,13 @@ def tela_admin():
                         ok, msg = enviar_whatsapp_template(tel_final, [nome_final, item_venda, cod_vale])
                         
                         if ok:
-                            st.success(f"✅ Enviado para {nome_final} via {origem_dados}!")
+                            st.success(f"✅ {msg} (Via {origem_dados})")
                             enviados += 1
                         else:
                             st.error(f"⚠️ Erro API ({nome_final}): {msg}")
                             
                     if enviados > 0:
                         st.toast(f"Fim! {enviados} envios com sucesso.")
-                        # Limpa seleção e salva
                         edit_v_limpo = edit_v.drop(columns=["Enviar"])
                         conn.update(worksheet="vendas", data=edit_v_limpo)
                         time.sleep(3); st.rerun()
@@ -345,7 +358,7 @@ def tela_admin():
         if c1.button("Testar Template Agora"):
             if tel_teste:
                 ok, resp = enviar_whatsapp_template(tel_teste, ["Teste", "Prêmio X", "COD-123"])
-                if ok: st.success("✅ Sucesso!")
+                if ok: st.success(f"✅ {resp}")
                 else: st.error(f"❌ {resp}")
 
 def tela_principal():
