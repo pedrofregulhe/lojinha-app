@@ -162,7 +162,7 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato):
         df_u.at[idx, 'saldo'] = float(df_u.at[idx, 'saldo']) - custo
         conn.update(worksheet="usuarios", data=df_u)
         
-        # 2. Registra Venda (AGORA COM NOME E TELEFONE)
+        # 2. Registra Venda
         df_v = carregar_dados("vendas")
         nova = pd.DataFrame([{
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"), 
@@ -171,11 +171,10 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato):
             "Valor": custo, 
             "Status": "Pendente", 
             "Email": email_contato,
-            "NomeReal": nome_user,    # Nova Coluna
-            "Telefone": telefone_user # Nova Coluna
+            "NomeReal": nome_user,    
+            "Telefone": telefone_user 
         }])
         
-        # Concatena garantindo que as colunas existam
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
         st.session_state['saldo_atual'] -= custo
         return True
@@ -231,11 +230,19 @@ def tela_admin():
         if not df_v.empty:
             if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
             
-            # Garante que as novas colunas existem no dataframe para visualização
+            # Garante que as novas colunas existem
             if "Telefone" not in df_v.columns: df_v["Telefone"] = ""
             if "NomeReal" not in df_v.columns: df_v["NomeReal"] = ""
+            if "CodigoVale" not in df_v.columns: df_v["CodigoVale"] = ""
             
-            st.info("💡 As colunas 'Telefone' e 'NomeReal' devem estar preenchidas na planilha. Se estiverem vazias, preencha manualmente antes de enviar.")
+            # --- CORREÇÃO DO ERRO ---
+            # Força tudo para String para evitar conflito de tipos no Data Editor
+            df_v["Telefone"] = df_v["Telefone"].astype(str).replace("nan", "")
+            df_v["NomeReal"] = df_v["NomeReal"].astype(str).replace("nan", "")
+            df_v["CodigoVale"] = df_v["CodigoVale"].astype(str).replace("nan", "")
+            # ------------------------
+            
+            st.info("💡 As colunas 'Telefone' e 'NomeReal' devem estar preenchidas. Se estiverem vazias, preencha manualmente.")
             
             # Configuração das Colunas
             col_config = {
@@ -246,7 +253,7 @@ def tela_admin():
             }
             
             edit_v = st.data_editor(
-                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v4", column_config=col_config
+                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v5", column_config=col_config
             )
             
             if st.button("📤 Processar Envios", type="primary"):
@@ -266,17 +273,16 @@ def tela_admin():
                     for i, (index, row) in enumerate(selecionados.iterrows()):
                         barra.progress((i + 1) / total)
                         
-                        # 1. PEGA DADOS DIRETO DA LINHA (Sem PROCV)
+                        # 1. PEGA DADOS
                         tel_destino = str(row.get('Telefone', '')).strip()
                         nome_destino = str(row.get('NomeReal', '')).strip()
-                        # Se NomeReal estiver vazio, usa o Usuario como quebra-galho
                         if not nome_destino or nome_destino == 'nan': nome_destino = str(row.get('Usuario', ''))
                         
                         item_venda = str(row.get('Item', ''))
                         cod_vale = str(row.get('CodigoVale', ''))
                         
-                        # 2. VALIDAÇÕES BÁSICAS
-                        if len(tel_destino) < 8 or tel_destino == 'nan':
+                        # 2. VALIDAÇÕES
+                        if len(tel_destino) < 8 or tel_destino == 'nan' or tel_destino == '':
                             msg = f"❌ Erro: Telefone vazio na venda de {nome_destino}."
                             st.write(msg); erros.append(msg)
                             continue
@@ -287,7 +293,6 @@ def tela_admin():
                             continue
 
                         # 3. ENVIA
-                        # Parametros: {{1}}=Nome, {{2}}=Item, {{3}}=Codigo
                         sucesso, resposta = enviar_whatsapp_template(tel_destino, [nome_destino, item_venda, cod_vale])
                         
                         if sucesso:
