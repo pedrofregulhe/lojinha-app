@@ -51,22 +51,37 @@ def formatar_telefone(tel_bruto):
         apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
-def enviar_whatsapp(telefone, mensagem):
-    """Integração direta com API Infobip com DEBUG de erro"""
+def enviar_whatsapp_template(telefone, parametros):
+    """
+    Envia MENSAGEM TEMPLATE via Infobip (Fura o bloqueio de 24h)
+    parametros: Lista de strings [Nome, Item, Codigo]
+    """
     try:
-        base_url = st.secrets["INFOBIP_BASE_URL"]
+        base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
         sender = st.secrets["INFOBIP_SENDER"]
         
-        # Garante que a URL não tenha barra no final para evitar //
-        base_url = base_url.rstrip('/')
-        url = f"{base_url}/whatsapp/1/message/text"
+        # Endpoint específico para Templates
+        url = f"{base_url}/whatsapp/1/message/template"
         
         payload = {
-            "from": sender,
-            "to": formatar_telefone(telefone),
-            "content": {"text": mensagem}
+            "messages": [
+                {
+                    "from": sender,
+                    "to": formatar_telefone(telefone),
+                    "content": {
+                        "templateName": "premios_campanhas", # NOME EXATO DO SEU TEMPLATE
+                        "templateData": {
+                            "body": {
+                                "placeholders": parametros # Ex: ["Maria", "TV", "COD123"]
+                            }
+                        },
+                        "language": "pt_BR"
+                    }
+                }
+            ]
         }
+        
         headers = {
             "Authorization": f"App {api_key}",
             "Content-Type": "application/json",
@@ -75,7 +90,7 @@ def enviar_whatsapp(telefone, mensagem):
         
         response = requests.post(url, json=payload, headers=headers)
         
-        # --- MODO DEBUG ATIVADO ---
+        # DEBUG: Mostra erro se não for sucesso (200 = OK)
         if response.status_code not in [200, 201]:
             st.error(f"⚠️ Erro Infobip ({response.status_code}): {response.text}")
             return False
@@ -98,7 +113,6 @@ if not st.session_state.get('logado', False):
 else:
     bg_style = ".stApp { background-color: #f4f8fb; }"
 
-# ATENÇÃO: As chaves {{ }} duplicadas no CSS são para evitar o erro de f-string
 st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
@@ -204,20 +218,37 @@ def tela_login():
 def tela_admin():
     st.subheader("🛠️ Painel Admin")
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
+    
     with t1:
         df_v = carregar_dados("vendas")
         if not df_v.empty:
             edit_v = st.data_editor(df_v, use_container_width=True, hide_index=True, key="ed_vendas")
+            
+            # BOTÃO DE ENVIO COM TEMPLATE
             if st.button("Salvar e Enviar Códigos por WhatsApp", type="primary"):
                 conn.update(worksheet="vendas", data=edit_v)
                 df_u = carregar_dados("usuarios")
+                enviados = 0
+                
                 for _, row in edit_v.iterrows():
+                    # Só envia se estiver ENTREGUE e tiver CÓDIGO DO VALE
                     if row['Status'] == "Entregue" and str(row.get('CodigoVale', '')) not in ["", "nan", "None"]:
                         u_info = df_u[df_u['usuario'].astype(str) == str(row['Usuario'])]
+                        
                         if not u_info.empty:
-                            msg = f"Olá {u_info.iloc[0]['nome']}! Seu prêmio *{row['Item']}* chegou! 🎉\nCódigo: *{row['CodigoVale']}*"
-                            enviar_whatsapp(u_info.iloc[0]['telefone'], msg)
-                st.success("Processado!"); time.sleep(1); st.rerun()
+                            tel = u_info.iloc[0]['telefone']
+                            
+                            # DADOS PARA O TEMPLATE (Ordem: {{1}}, {{2}}, {{3}})
+                            p1_nome = str(u_info.iloc[0]['nome'])
+                            p2_item = str(row['Item'])
+                            p3_codigo = str(row['CodigoVale'])
+                            
+                            # ENVIA USANDO O TEMPLATE 'premios_campanhas'
+                            if enviar_whatsapp_template(tel, [p1_nome, p2_item, p3_codigo]):
+                                enviados += 1
+                                
+                st.success(f"Processado! {enviados} mensagens enviadas."); time.sleep(2); st.rerun()
+                
     with t2:
         df_u = carregar_dados("usuarios")
         edit_u = st.data_editor(df_u, use_container_width=True, num_rows="dynamic", key="ed_u")
@@ -229,26 +260,31 @@ def tela_admin():
     
     # --- ABA DE TESTE E FERRAMENTAS ---
     with t4:
-        st.markdown("### 🧪 Teste de Conexão WhatsApp")
-        st.caption("Use isso para testar se a API Key e URL estão funcionando corretamente.")
+        st.markdown("### 🧪 Teste de Envio (Via Template)")
+        st.caption("Usa o template 'premios_campanhas' para testar se a mensagem chega sem precisar de 'Oi'.")
         
         c_test1, c_test2 = st.columns([2, 1])
         tel_teste = c_test1.text_input("Número para teste (com DDD)", placeholder="ex: 11999999999")
-        msg_teste = c_test1.text_area("Mensagem de teste", "Teste de conexão Loja Culligan 🎁")
         
-        if c_test1.button("Enviar Teste Agora"):
+        c1, c2, c3 = st.columns(3)
+        t_nome = c1.text_input("Dado 1 (Nome)", "Teste")
+        t_item = c2.text_input("Dado 2 (Item)", "Prêmio Teste")
+        t_cod = c3.text_input("Dado 3 (Código)", "TEST-000")
+        
+        if st.button("Enviar Teste Agora"):
             if tel_teste:
-                with st.spinner("Conectando à Infobip..."):
-                    sucesso = enviar_whatsapp(tel_teste, msg_teste)
+                with st.spinner("Enviando template..."):
+                    # Testa usando o mesmo template oficial
+                    sucesso = enviar_whatsapp_template(tel_teste, [t_nome, t_item, t_cod])
                     if sucesso:
-                        st.success("✅ Mensagem enviada com sucesso! A API está funcionando.")
+                        st.success("✅ Sucesso! O WhatsApp deve chegar em instantes.")
                     else:
-                        st.error("❌ Falha no envio. Leia a mensagem de erro acima.")
+                        st.error("❌ Falha. Veja o erro acima.")
             else:
                 st.warning("Preencha um número de telefone.")
         
         st.divider()
-        sh = st.text_input("Gerar Hash Senha (Ferramenta Auxiliar):")
+        sh = st.text_input("Gerar Hash Senha:")
         st.code(gerar_hash(sh)) if sh else None
 
 def tela_principal():
