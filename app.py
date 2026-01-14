@@ -74,6 +74,13 @@ def enviar_whatsapp(telefone, mensagem):
         st.error(f"Erro na Infobip: {e}")
         return False
 
+# --- SESSÃO ---
+if 'logado' not in st.session_state: st.session_state['logado'] = False
+if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
+if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
+if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
+if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
+
 # --- ESTILIZAÇÃO DINÂMICA (CSS) ---
 if not st.session_state.get('logado', False):
     bg_style = ".stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }"
@@ -86,7 +93,11 @@ st.markdown(f"""
     html, body, [class*="css"] {{ font-family: 'Roboto', sans-serif; }}
     header {{ visibility: hidden; }}
     .stDeployButton {{ display: none; }}
-    @keyframes gradient {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
+    @keyframes gradient {{ 
+        0% {{ background-position: 0% 50%; }} 
+        50% {{ background-position: 100% 50%; }} 
+        100% {{ background-position: 0% 50%; }} 
+    }}
     {bg_style}
     .block-container {{ padding-top: 2rem !important; padding-bottom: 2rem !important; }}
     [data-testid="stForm"] {{ background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none; }}
@@ -95,7 +106,7 @@ st.markdown(f"""
         background-size: 400% 400%; animation: gradient 10s ease infinite;
         padding: 20px 25px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         display: flex; flex-direction: column; justify-content: center; height: 100%;
-    }
+    }}
     [data-testid="stImage"] img {{ height: 150px !important; object-fit: contain !important; border-radius: 10px; }}
     div.stButton > button[kind="secondary"] {{ background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
     div.stButton > button[kind="primary"] {{ background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
@@ -105,13 +116,7 @@ st.markdown(f"""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- SESSÃO E DADOS ---
-if 'logado' not in st.session_state: st.session_state['logado'] = False
-if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
-if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
-if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
-if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
-
+# --- LÓGICA DE DADOS ---
 def carregar_dados(aba):
     try: return conn.read(worksheet=aba, ttl=0)
     except: return pd.DataFrame()
