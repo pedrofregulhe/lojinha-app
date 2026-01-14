@@ -70,7 +70,7 @@ def enviar_whatsapp_template(telefone, parametros):
                     "from": sender,
                     "to": formatar_telefone(telefone),
                     "content": {
-                        "templateName": "premios_campanhas", # NOME EXATO DO SEU TEMPLATE
+                        "templateName": "premios_campanhas_envio", # NOME ATUALIZADO
                         "templateData": {
                             "body": {
                                 "placeholders": parametros # Ex: ["Maria", "TV", "COD123"]
@@ -222,32 +222,72 @@ def tela_admin():
     with t1:
         df_v = carregar_dados("vendas")
         if not df_v.empty:
-            edit_v = st.data_editor(df_v, use_container_width=True, hide_index=True, key="ed_vendas")
+            # ADICIONA COLUNA DE SELEÇÃO TEMPORÁRIA
+            if "Enviar" not in df_v.columns:
+                df_v.insert(0, "Enviar", False)
             
-            # BOTÃO DE ENVIO COM TEMPLATE
-            if st.button("Salvar e Enviar Códigos por WhatsApp", type="primary"):
-                conn.update(worksheet="vendas", data=edit_v)
-                df_u = carregar_dados("usuarios")
-                enviados = 0
+            st.info("💡 Marque a caixa 'Enviar' nas linhas que deseja processar e clique no botão abaixo.")
+            
+            # EDITOR COM CHECKBOX
+            edit_v = st.data_editor(
+                df_v, 
+                use_container_width=True, 
+                hide_index=True, 
+                key="ed_vendas",
+                column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)}
+            )
+            
+            # BOTÃO DE ENVIO COM NOVA LÓGICA
+            if st.button("📤 Enviar Mensagens para Selecionados", type="primary"):
+                # Filtra apenas o que foi marcado
+                selecionados = edit_v[edit_v['Enviar'] == True]
                 
-                for _, row in edit_v.iterrows():
-                    # Só envia se estiver ENTREGUE e tiver CÓDIGO DO VALE
-                    if row['Status'] == "Entregue" and str(row.get('CodigoVale', '')) not in ["", "nan", "None"]:
+                if selecionados.empty:
+                    st.warning("Nenhuma linha selecionada!")
+                else:
+                    df_u = carregar_dados("usuarios")
+                    enviados = 0
+                    erros = 0
+                    
+                    barra_progresso = st.progress(0)
+                    total = len(selecionados)
+                    
+                    for i, (index, row) in enumerate(selecionados.iterrows()):
+                        # Atualiza barra
+                        barra_progresso.progress((i + 1) / total)
+                        
+                        # Validação básica
+                        codigo_vale = str(row.get('CodigoVale', ''))
+                        if codigo_vale in ["", "nan", "None"]:
+                            st.toast(f"Linha {index}: Sem código de vale!", icon="⚠️")
+                            erros += 1
+                            continue
+                            
                         u_info = df_u[df_u['usuario'].astype(str) == str(row['Usuario'])]
                         
                         if not u_info.empty:
                             tel = u_info.iloc[0]['telefone']
                             
-                            # DADOS PARA O TEMPLATE (Ordem: {{1}}, {{2}}, {{3}})
+                            # DADOS PARA O TEMPLATE 'premios_campanhas_envio'
+                            # Ordem esperada: {{1}}=Nome, {{2}}=Item, {{3}}=Codigo
                             p1_nome = str(u_info.iloc[0]['nome'])
                             p2_item = str(row['Item'])
-                            p3_codigo = str(row['CodigoVale'])
+                            p3_codigo = codigo_vale
                             
-                            # ENVIA USANDO O TEMPLATE 'premios_campanhas'
                             if enviar_whatsapp_template(tel, [p1_nome, p2_item, p3_codigo]):
                                 enviados += 1
-                                
-                st.success(f"Processado! {enviados} mensagens enviadas."); time.sleep(2); st.rerun()
+                            else:
+                                erros += 1
+                        else:
+                            st.toast(f"Usuário {row['Usuario']} não encontrado!", icon="❌")
+                    
+                    # FINALIZAÇÃO
+                    # Remove a coluna 'Enviar' antes de salvar no Google Sheets para não dar erro
+                    edit_v_final = edit_v.drop(columns=["Enviar"])
+                    conn.update(worksheet="vendas", data=edit_v_final)
+                    
+                    st.success(f"Concluído! {enviados} enviados com sucesso. {erros} erros.")
+                    time.sleep(2); st.rerun()
                 
     with t2:
         df_u = carregar_dados("usuarios")
@@ -260,8 +300,7 @@ def tela_admin():
     
     # --- ABA DE TESTE E FERRAMENTAS ---
     with t4:
-        st.markdown("### 🧪 Teste de Envio (Via Template)")
-        st.caption("Usa o template 'premios_campanhas' para testar se a mensagem chega sem precisar de 'Oi'.")
+        st.markdown(f"### 🧪 Teste de Envio (Template: `premios_campanhas_envio`)")
         
         c_test1, c_test2 = st.columns([2, 1])
         tel_teste = c_test1.text_input("Número para teste (com DDD)", placeholder="ex: 11999999999")
@@ -274,7 +313,6 @@ def tela_admin():
         if st.button("Enviar Teste Agora"):
             if tel_teste:
                 with st.spinner("Enviando template..."):
-                    # Testa usando o mesmo template oficial
                     sucesso = enviar_whatsapp_template(tel_teste, [t_nome, t_item, t_cod])
                     if sucesso:
                         st.success("✅ Sucesso! O WhatsApp deve chegar em instantes.")
