@@ -61,7 +61,6 @@ def enviar_whatsapp_template(telefone, parametros):
         api_key = st.secrets["INFOBIP_API_KEY"]
         sender = st.secrets["INFOBIP_SENDER"]
         
-        # Endpoint específico para Templates
         url = f"{base_url}/whatsapp/1/message/template"
         
         payload = {
@@ -70,10 +69,10 @@ def enviar_whatsapp_template(telefone, parametros):
                     "from": sender,
                     "to": formatar_telefone(telefone),
                     "content": {
-                        "templateName": "premios_campanhas_envio", # NOME DO SEU TEMPLATE
+                        "templateName": "premios_campanhas_envio", 
                         "templateData": {
                             "body": {
-                                "placeholders": parametros # Ex: ["Maria", "TV", "COD123"]
+                                "placeholders": parametros 
                             }
                         },
                         "language": "pt_BR"
@@ -90,7 +89,6 @@ def enviar_whatsapp_template(telefone, parametros):
         
         response = requests.post(url, json=payload, headers=headers)
         
-        # DEBUG: Retorna falso se não for sucesso (200 ou 201)
         if response.status_code not in [200, 201]:
             st.error(f"⚠️ Erro Infobip ({response.status_code}): {response.text}")
             return False
@@ -140,12 +138,10 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# CONEXÃO COM A PLANILHA ÚNICA
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- LÓGICA DE DADOS ---
 def carregar_dados(aba):
-    # Lê a aba específica da planilha configurada no secrets.toml
     try: return conn.read(worksheet=aba, ttl=0)
     except: return pd.DataFrame()
 
@@ -158,6 +154,7 @@ def validar_login(user_input, pass_input):
     if df.empty: return False, None, None, 0
     u_in = limpar_dado(user_input).lower()
     df_temp = df.copy()
+    # Busca na coluna 'usuario' da aba Usuarios
     df_temp['u_busca'] = df_temp['usuario'].astype(str).apply(lambda x: limpar_dado(x).lower())
     user_row = df_temp[df_temp['u_busca'] == u_in]
     if not user_row.empty:
@@ -172,8 +169,16 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato):
         idx = df_u[df_u['usuario'].astype(str).str.lower() == usuario_cod.lower()].index
         df_u.at[idx[0], 'saldo'] = float(df_u.at[idx[0], 'saldo']) - custo
         conn.update(worksheet="usuarios", data=df_u)
+        
         df_v = carregar_dados("vendas")
-        nova = pd.DataFrame([{"Data": datetime.now().strftime("%d/%m/%Y %H:%M"), "Usuario": usuario_cod, "Item": item_nome, "Valor": custo, "Status": "Pendente", "Email": email_contato}])
+        nova = pd.DataFrame([{
+            "Data": datetime.now().strftime("%d/%m/%Y %H:%M"), 
+            "Usuario": usuario_cod, # Aqui salva o ID do usuario
+            "Item": item_nome, 
+            "Valor": custo, 
+            "Status": "Pendente", 
+            "Email": email_contato
+        }])
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
         st.session_state['saldo_atual'] -= custo
         return True
@@ -223,82 +228,96 @@ def tela_admin():
     
     with t1:
         df_v = carregar_dados("vendas")
+        
         if not df_v.empty:
-            # Garante que a coluna de Seleção existe no visual (sem salvar no banco ainda)
-            if "Enviar" not in df_v.columns:
+            # Insere coluna de checkbox temporária
+            if "Enviar" not in df_v.columns: 
                 df_v.insert(0, "Enviar", False)
             
-            st.info("💡 Marque a caixa 'Enviar' nas linhas desejadas e clique no botão abaixo.")
+            st.info("💡 Marque a caixa 'Enviar' para selecionar quem vai receber a mensagem. O sistema buscará o nome e telefone na aba Usuários.")
             
+            # Tabela Editável
             edit_v = st.data_editor(
                 df_v, 
                 use_container_width=True, 
                 hide_index=True, 
-                key="ed_vendas_admin_final",
-                column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)}
+                key="ed_vendas_final_v3",
+                column_config={
+                    "Enviar": st.column_config.CheckboxColumn("Enviar?", default=False),
+                    "CodigoVale": st.column_config.TextColumn("CodigoVale (Obrigatório)")
+                }
             )
             
             if st.button("📤 Processar Envios", type="primary"):
-                # Filtra apenas o que o usuário marcou na tela
+                # 1. Filtra só quem foi marcado
                 selecionados = edit_v[edit_v['Enviar'] == True]
                 
                 if selecionados.empty:
-                    st.warning("⚠️ Nenhuma linha marcada para envio!")
+                    st.warning("⚠️ Nenhuma linha marcada!")
                 else:
+                    # 2. Carrega a aba Usuários para fazer o PROCV (busca)
                     df_u = carregar_dados("usuarios")
                     
-                    # --- CRIAÇÃO DE CHAVE DE BUSCA SEGURA ---
-                    # Transforma a coluna de usuários em minúsculo e sem espaços para garantir o "match"
+                    # Prepara a chave de busca (minúsculo e sem espaço)
                     df_u['match_key'] = df_u['usuario'].astype(str).str.strip().str.lower()
                     
                     enviados = 0
                     erros_log = []
                     
+                    st.write("--- Iniciando Processamento ---")
                     barra = st.progress(0)
                     total_linhas = len(selecionados)
                     
                     for i, (index, row) in enumerate(selecionados.iterrows()):
                         barra.progress((i + 1) / total_linhas)
                         
-                        # 1. Validação: Tem código do vale?
+                        # A. Valida se o código do vale foi preenchido
                         codigo_vale = str(row.get('CodigoVale', ''))
-                        if codigo_vale in ["", "nan", "None"]:
-                            erros_log.append(f"❌ Item '{row['Item']}': Falta preencher o 'CodigoVale'.")
+                        if codigo_vale.lower() in ["", "nan", "none"]:
+                            msg = f"❌ Erro na linha (Item: {row['Item']}): Coluna 'CodigoVale' está vazia."
+                            st.write(msg)
+                            erros_log.append(msg)
                             continue
                         
-                        # 2. Busca o usuário: Pega o usuário da venda, limpa e procura na aba Usuários
-                        usuario_venda = str(row['Usuario']).strip().lower()
-                        u_info = df_u[df_u['match_key'] == usuario_venda]
+                        # B. Pega o USUÁRIO da venda para procurar na outra aba
+                        id_usuario_venda = str(row['Usuario']).strip().lower()
                         
-                        if not u_info.empty:
-                            # Encontrou! Pega o telefone e nome
-                            tel = u_info.iloc[0]['telefone']
-                            nome_user = u_info.iloc[0]['nome']
-                            item_nome = row['Item']
+                        # C. Faz o PROCV (Busca na aba Usuários)
+                        u_encontrado = df_u[df_u['match_key'] == id_usuario_venda]
+                        
+                        if not u_encontrado.empty:
+                            # Achou! Pega os dados da aba Usuários
+                            telefone_destino = str(u_encontrado.iloc[0]['telefone'])
+                            nome_destino = str(u_encontrado.iloc[0]['nome'])
+                            item_venda = str(row['Item'])
                             
-                            # 3. Dispara a mensagem
-                            # Ordem dos parâmetros: {{1}}=Nome, {{2}}=Item, {{3}}=Código
-                            if enviar_whatsapp_template(tel, [str(nome_user), str(item_nome), str(codigo_vale)]):
+                            # Valida telefone
+                            if len(telefone_destino) < 8:
+                                st.write(f"❌ Usuário '{nome_destino}' tem telefone inválido na aba Usuários.")
+                                continue
+
+                            # D. Envia
+                            # Template espera: {{1}}=Nome, {{2}}=Item, {{3}}=Codigo
+                            sucesso = enviar_whatsapp_template(telefone_destino, [nome_destino, item_venda, codigo_vale])
+                            
+                            if sucesso:
                                 enviados += 1
+                                st.write(f"✅ Enviado para {nome_destino} (Tel: {telefone_destino})")
                             else:
-                                erros_log.append(f"⚠️ Erro de API ao enviar para {nome_user}.")
+                                st.write(f"⚠️ Falha na API ao enviar para {nome_destino}.")
                         else:
-                            erros_log.append(f"❌ Usuário '{row['Usuario']}' da venda não encontrado na aba Usuários.")
-                    
-                    # FINALIZAÇÃO
+                            st.write(f"❌ Não encontrei o usuário '{row['Usuario']}' na aba Usuários. Verifique se o nome de usuário está igual.")
+
                     if enviados > 0:
-                        st.success(f"✅ {enviados} mensagens enviadas com sucesso!")
-                        # Remove a coluna 'Enviar' para não tentar salvar isso no Google Sheets
+                        st.success(f"Finalizado! {enviados} mensagens enviadas.")
+                        # Remove a coluna Enviar antes de salvar
                         edit_v_limpo = edit_v.drop(columns=["Enviar"])
                         conn.update(worksheet="vendas", data=edit_v_limpo)
-                        time.sleep(2)
+                        time.sleep(3)
                         st.rerun()
-                    
-                    if erros_log:
-                        st.error("Ocorreram erros durante o processamento:")
-                        for erro in erros_log:
-                            st.write(erro)
-                
+                    else:
+                        st.error("Nenhuma mensagem enviada. Verifique os erros acima.")
+
     with t2:
         df_u = carregar_dados("usuarios")
         edit_u = st.data_editor(df_u, use_container_width=True, num_rows="dynamic", key="ed_u")
@@ -309,7 +328,7 @@ def tela_admin():
         if st.button("Salvar Prêmios"): conn.update(worksheet="premios", data=edit_p); st.rerun()
     
     with t4:
-        st.markdown(f"### 🧪 Teste de Envio (Template: `premios_campanhas_envio`)")
+        st.markdown(f"### 🧪 Teste de Envio")
         c_test1, c_test2 = st.columns([2, 1])
         tel_teste = c_test1.text_input("Número para teste (com DDD)", placeholder="ex: 11999999999")
         c1, c2, c3 = st.columns(3)
@@ -322,9 +341,9 @@ def tela_admin():
                 with st.spinner("Enviando template..."):
                     sucesso = enviar_whatsapp_template(tel_teste, [t_nome, t_item, t_cod])
                     if sucesso:
-                        st.success("✅ Sucesso! O WhatsApp deve chegar em instantes.")
+                        st.success("✅ Sucesso!")
                     else:
-                        st.error("❌ Falha. Veja o erro acima.")
+                        st.error("❌ Falha.")
             else:
                 st.warning("Preencha um número de telefone.")
         st.divider()
