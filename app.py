@@ -70,7 +70,7 @@ def enviar_whatsapp_template(telefone, parametros):
                     "from": sender,
                     "to": formatar_telefone(telefone),
                     "content": {
-                        "templateName": "premios_campanhas_envio", # NOME ATUALIZADO
+                        "templateName": "premios_campanhas_envio", # NOME DO SEU TEMPLATE
                         "templateData": {
                             "body": {
                                 "placeholders": parametros # Ex: ["Maria", "TV", "COD123"]
@@ -90,7 +90,7 @@ def enviar_whatsapp_template(telefone, parametros):
         
         response = requests.post(url, json=payload, headers=headers)
         
-        # DEBUG: Mostra erro se não for sucesso (200 = OK)
+        # DEBUG: Retorna falso se não for sucesso (200 ou 201)
         if response.status_code not in [200, 201]:
             st.error(f"⚠️ Erro Infobip ({response.status_code}): {response.text}")
             return False
@@ -140,10 +140,12 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
+# CONEXÃO COM A PLANILHA ÚNICA
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- LÓGICA DE DADOS ---
 def carregar_dados(aba):
+    # Lê a aba específica da planilha configurada no secrets.toml
     try: return conn.read(worksheet=aba, ttl=0)
     except: return pd.DataFrame()
 
@@ -222,72 +224,80 @@ def tela_admin():
     with t1:
         df_v = carregar_dados("vendas")
         if not df_v.empty:
-            # ADICIONA COLUNA DE SELEÇÃO TEMPORÁRIA
+            # Garante que a coluna de Seleção existe no visual (sem salvar no banco ainda)
             if "Enviar" not in df_v.columns:
                 df_v.insert(0, "Enviar", False)
             
-            st.info("💡 Marque a caixa 'Enviar' nas linhas que deseja processar e clique no botão abaixo.")
+            st.info("💡 Marque a caixa 'Enviar' nas linhas desejadas e clique no botão abaixo.")
             
-            # EDITOR COM CHECKBOX
             edit_v = st.data_editor(
                 df_v, 
                 use_container_width=True, 
                 hide_index=True, 
-                key="ed_vendas",
+                key="ed_vendas_admin_final",
                 column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)}
             )
             
-            # BOTÃO DE ENVIO COM NOVA LÓGICA
-            if st.button("📤 Enviar Mensagens para Selecionados", type="primary"):
-                # Filtra apenas o que foi marcado
+            if st.button("📤 Processar Envios", type="primary"):
+                # Filtra apenas o que o usuário marcou na tela
                 selecionados = edit_v[edit_v['Enviar'] == True]
                 
                 if selecionados.empty:
-                    st.warning("Nenhuma linha selecionada!")
+                    st.warning("⚠️ Nenhuma linha marcada para envio!")
                 else:
                     df_u = carregar_dados("usuarios")
-                    enviados = 0
-                    erros = 0
                     
-                    barra_progresso = st.progress(0)
-                    total = len(selecionados)
+                    # --- CRIAÇÃO DE CHAVE DE BUSCA SEGURA ---
+                    # Transforma a coluna de usuários em minúsculo e sem espaços para garantir o "match"
+                    df_u['match_key'] = df_u['usuario'].astype(str).str.strip().str.lower()
+                    
+                    enviados = 0
+                    erros_log = []
+                    
+                    barra = st.progress(0)
+                    total_linhas = len(selecionados)
                     
                     for i, (index, row) in enumerate(selecionados.iterrows()):
-                        # Atualiza barra
-                        barra_progresso.progress((i + 1) / total)
+                        barra.progress((i + 1) / total_linhas)
                         
-                        # Validação básica
+                        # 1. Validação: Tem código do vale?
                         codigo_vale = str(row.get('CodigoVale', ''))
                         if codigo_vale in ["", "nan", "None"]:
-                            st.toast(f"Linha {index}: Sem código de vale!", icon="⚠️")
-                            erros += 1
+                            erros_log.append(f"❌ Item '{row['Item']}': Falta preencher o 'CodigoVale'.")
                             continue
-                            
-                        u_info = df_u[df_u['usuario'].astype(str) == str(row['Usuario'])]
+                        
+                        # 2. Busca o usuário: Pega o usuário da venda, limpa e procura na aba Usuários
+                        usuario_venda = str(row['Usuario']).strip().lower()
+                        u_info = df_u[df_u['match_key'] == usuario_venda]
                         
                         if not u_info.empty:
+                            # Encontrou! Pega o telefone e nome
                             tel = u_info.iloc[0]['telefone']
+                            nome_user = u_info.iloc[0]['nome']
+                            item_nome = row['Item']
                             
-                            # DADOS PARA O TEMPLATE 'premios_campanhas_envio'
-                            # Ordem esperada: {{1}}=Nome, {{2}}=Item, {{3}}=Codigo
-                            p1_nome = str(u_info.iloc[0]['nome'])
-                            p2_item = str(row['Item'])
-                            p3_codigo = codigo_vale
-                            
-                            if enviar_whatsapp_template(tel, [p1_nome, p2_item, p3_codigo]):
+                            # 3. Dispara a mensagem
+                            # Ordem dos parâmetros: {{1}}=Nome, {{2}}=Item, {{3}}=Código
+                            if enviar_whatsapp_template(tel, [str(nome_user), str(item_nome), str(codigo_vale)]):
                                 enviados += 1
                             else:
-                                erros += 1
+                                erros_log.append(f"⚠️ Erro de API ao enviar para {nome_user}.")
                         else:
-                            st.toast(f"Usuário {row['Usuario']} não encontrado!", icon="❌")
+                            erros_log.append(f"❌ Usuário '{row['Usuario']}' da venda não encontrado na aba Usuários.")
                     
                     # FINALIZAÇÃO
-                    # Remove a coluna 'Enviar' antes de salvar no Google Sheets para não dar erro
-                    edit_v_final = edit_v.drop(columns=["Enviar"])
-                    conn.update(worksheet="vendas", data=edit_v_final)
+                    if enviados > 0:
+                        st.success(f"✅ {enviados} mensagens enviadas com sucesso!")
+                        # Remove a coluna 'Enviar' para não tentar salvar isso no Google Sheets
+                        edit_v_limpo = edit_v.drop(columns=["Enviar"])
+                        conn.update(worksheet="vendas", data=edit_v_limpo)
+                        time.sleep(2)
+                        st.rerun()
                     
-                    st.success(f"Concluído! {enviados} enviados com sucesso. {erros} erros.")
-                    time.sleep(2); st.rerun()
+                    if erros_log:
+                        st.error("Ocorreram erros durante o processamento:")
+                        for erro in erros_log:
+                            st.write(erro)
                 
     with t2:
         df_u = carregar_dados("usuarios")
@@ -298,13 +308,10 @@ def tela_admin():
         edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p")
         if st.button("Salvar Prêmios"): conn.update(worksheet="premios", data=edit_p); st.rerun()
     
-    # --- ABA DE TESTE E FERRAMENTAS ---
     with t4:
         st.markdown(f"### 🧪 Teste de Envio (Template: `premios_campanhas_envio`)")
-        
         c_test1, c_test2 = st.columns([2, 1])
         tel_teste = c_test1.text_input("Número para teste (com DDD)", placeholder="ex: 11999999999")
-        
         c1, c2, c3 = st.columns(3)
         t_nome = c1.text_input("Dado 1 (Nome)", "Teste")
         t_item = c2.text_input("Dado 2 (Item)", "Prêmio Teste")
@@ -320,7 +327,6 @@ def tela_admin():
                         st.error("❌ Falha. Veja o erro acima.")
             else:
                 st.warning("Preencha um número de telefone.")
-        
         st.divider()
         sh = st.text_input("Gerar Hash Senha:")
         st.code(gerar_hash(sh)) if sh else None
