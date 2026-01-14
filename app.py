@@ -448,7 +448,7 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** via e-mail.")
+            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo para entrega do pedido é de : **5 dias úteis** e o mesmo será enviado para o seu Whatsapp informado no momento do resgate!.")
             df_v = carregar_dados("vendas")
             if not df_v.empty:
                 meus = df_v[df_v['Usuario'].astype(str)==str(u_cod)]
