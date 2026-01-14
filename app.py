@@ -44,13 +44,15 @@ def converter_link_drive(url):
     return url
 
 def formatar_telefone(tel_bruto):
+    # Remove tudo que não é numero
     apenas_numeros = re.sub(r'\D', '', str(tel_bruto))
+    # Se sobrar algo tipo "11999999999", poe o 55 na frente
     if 10 <= len(apenas_numeros) <= 11:
         apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
 def enviar_whatsapp_template(telefone, parametros):
-    """Envia usando Template e pega erro detalhado"""
+    """Envia e retorna (Sucesso: Bool, Mensagem: Str)"""
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
@@ -58,16 +60,19 @@ def enviar_whatsapp_template(telefone, parametros):
         
         url = f"{base_url}/whatsapp/1/message/template"
         
+        # Limpa telefone final para envio
+        tel_final = formatar_telefone(telefone)
+        
         payload = {
             "messages": [
                 {
                     "from": sender,
-                    "to": formatar_telefone(telefone),
+                    "to": tel_final,
                     "content": {
                         "templateName": "premios_campanhas_envio", 
                         "templateData": {
                             "body": {
-                                "placeholders": parametros # Lista [Nome, Item, Codigo]
+                                "placeholders": parametros 
                             }
                         },
                         "language": "pt_BR"
@@ -85,12 +90,11 @@ def enviar_whatsapp_template(telefone, parametros):
         response = requests.post(url, json=payload, headers=headers)
         
         if response.status_code not in [200, 201]:
-            # Retorna o erro exato para mostrar na tela
-            return False, f"Erro {response.status_code}: {response.text}"
+            return False, f"Erro API {response.status_code}: {response.text}"
             
-        return True, "Sucesso"
+        return True, "Enviado com sucesso"
     except Exception as e:
-        return False, f"Erro de Conexão: {str(e)}"
+        return False, f"Erro Conexão: {str(e)}"
 
 # --- SESSÃO ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
@@ -148,21 +152,25 @@ def validar_login(user_input, pass_input):
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato):
     try:
-        # 1. Debita saldo
+        # Busca dados atualizados do usuario para salvar na venda
         df_u = carregar_dados("usuarios")
-        # Procura o usuário para pegar dados completos (telefone e nome)
         usuario_row = df_u[df_u['usuario'].astype(str).str.lower() == usuario_cod.lower()]
         
-        if usuario_row.empty: return False
+        telefone_user = ""
+        nome_user = ""
         
-        idx = usuario_row.index[0]
-        telefone_user = str(usuario_row.at[idx, 'telefone']) # Pega o telefone do cadastro
-        nome_user = str(usuario_row.at[idx, 'nome'])         # Pega o nome do cadastro
-        
-        df_u.at[idx, 'saldo'] = float(df_u.at[idx, 'saldo']) - custo
-        conn.update(worksheet="usuarios", data=df_u)
-        
-        # 2. Registra Venda
+        if not usuario_row.empty:
+            idx = usuario_row.index[0]
+            # Salva nome e telefone no momento da compra para facilitar envio depois
+            telefone_user = str(usuario_row.at[idx, 'telefone'])
+            nome_user = str(usuario_row.at[idx, 'nome'])
+            
+            # Debita saldo
+            df_u.at[idx, 'saldo'] = float(df_u.at[idx, 'saldo']) - custo
+            conn.update(worksheet="usuarios", data=df_u)
+        else:
+            return False
+
         df_v = carregar_dados("vendas")
         nova = pd.DataFrame([{
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"), 
@@ -171,8 +179,8 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato):
             "Valor": custo, 
             "Status": "Pendente", 
             "Email": email_contato,
-            "NomeReal": nome_user,    
-            "Telefone": telefone_user 
+            "NomeReal": nome_user,
+            "Telefone": telefone_user
         }])
         
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
@@ -201,7 +209,7 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
     if st.button("CONFIRMAR", type="primary", use_container_width=True):
         if "@" in email_contato and "." in email_contato:
             if salvar_venda(usuario_cod, item_nome, custo, email_contato):
-                st.success("Sucesso! Compra registrada."); st.balloons(); time.sleep(2); st.rerun()
+                st.success("Sucesso!"); st.balloons(); time.sleep(2); st.rerun()
         else: st.warning("E-mail inválido.")
 
 # --- TELAS ---
@@ -225,35 +233,33 @@ def tela_admin():
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
     
     with t1:
+        # Carrega dados
         df_v = carregar_dados("vendas")
-        
+        df_u = carregar_dados("usuarios") # Precisamos disso para o "Plano B" de busca
+
         if not df_v.empty:
-            if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
+            # Garante colunas no DataFrame (mesmo que vazias)
+            cols_obrigatorias = ["Enviar", "CodigoVale", "Telefone", "NomeReal"]
+            for col in cols_obrigatorias:
+                if col not in df_v.columns: 
+                    df_v[col] = False if col == "Enviar" else ""
+
+            # Converte para string para evitar erro de tipo no Streamlit
+            df_v["Telefone"] = df_v["Telefone"].astype(str).replace(["nan", "None"], "")
+            df_v["NomeReal"] = df_v["NomeReal"].astype(str).replace(["nan", "None"], "")
+            df_v["CodigoVale"] = df_v["CodigoVale"].astype(str).replace(["nan", "None"], "")
+
+            st.info("💡 Se o telefone estiver vazio na Venda, o sistema buscará automaticamente na aba Usuários.")
             
-            # Garante que as novas colunas existem
-            if "Telefone" not in df_v.columns: df_v["Telefone"] = ""
-            if "NomeReal" not in df_v.columns: df_v["NomeReal"] = ""
-            if "CodigoVale" not in df_v.columns: df_v["CodigoVale"] = ""
-            
-            # --- CORREÇÃO DO ERRO ---
-            # Força tudo para String para evitar conflito de tipos no Data Editor
-            df_v["Telefone"] = df_v["Telefone"].astype(str).replace("nan", "")
-            df_v["NomeReal"] = df_v["NomeReal"].astype(str).replace("nan", "")
-            df_v["CodigoVale"] = df_v["CodigoVale"].astype(str).replace("nan", "")
-            # ------------------------
-            
-            st.info("💡 As colunas 'Telefone' e 'NomeReal' devem estar preenchidas. Se estiverem vazias, preencha manualmente.")
-            
-            # Configuração das Colunas
             col_config = {
                 "Enviar": st.column_config.CheckboxColumn("Enviar?", default=False),
-                "CodigoVale": st.column_config.TextColumn("Código do Vale (Obrigatório)"),
-                "Telefone": st.column_config.TextColumn("Telefone (Obrigatório)", help="Formato: 11999999999"),
-                "NomeReal": st.column_config.TextColumn("Nome na Mensagem")
+                "CodigoVale": st.column_config.TextColumn("Código do Vale"),
+                "Telefone": st.column_config.TextColumn("Telefone (Opcional)"),
+                "NomeReal": st.column_config.TextColumn("Nome (Opcional)")
             }
             
             edit_v = st.data_editor(
-                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v5", column_config=col_config
+                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v6", column_config=col_config
             )
             
             if st.button("📤 Processar Envios", type="primary"):
@@ -263,47 +269,62 @@ def tela_admin():
                     st.warning("Nenhuma linha selecionada.")
                 else:
                     enviados = 0
-                    erros = []
-                    
                     barra = st.progress(0)
                     total = len(selecionados)
                     
-                    st.write("--- Iniciando Envios ---")
+                    st.markdown("### 📝 Relatório de Processamento:")
                     
                     for i, (index, row) in enumerate(selecionados.iterrows()):
                         barra.progress((i + 1) / total)
                         
-                        # 1. PEGA DADOS
-                        tel_destino = str(row.get('Telefone', '')).strip()
-                        nome_destino = str(row.get('NomeReal', '')).strip()
-                        if not nome_destino or nome_destino == 'nan': nome_destino = str(row.get('Usuario', ''))
+                        # --- ESTRATÉGIA HÍBRIDA DE DADOS ---
                         
-                        item_venda = str(row.get('Item', ''))
-                        cod_vale = str(row.get('CodigoVale', ''))
+                        # 1. Tenta pegar da linha da venda (Prioridade)
+                        tel_final = str(row['Telefone']).strip()
+                        nome_final = str(row['NomeReal']).strip()
+                        usuario_id = str(row['Usuario']).strip()
                         
-                        # 2. VALIDAÇÕES
-                        if len(tel_destino) < 8 or tel_destino == 'nan' or tel_destino == '':
-                            msg = f"❌ Erro: Telefone vazio na venda de {nome_destino}."
-                            st.write(msg); erros.append(msg)
+                        # 2. Se estiver vazio na venda, busca na aba Usuários (Plano B)
+                        origem_dados = "Venda"
+                        if len(tel_final) < 8:
+                            origem_dados = "Cadastro Usuários"
+                            st.caption(f"🔎 Buscando dados de '{usuario_id}' na aba Usuários...")
+                            
+                            # Busca segura (lowercase e strip)
+                            df_u['key'] = df_u['usuario'].astype(str).str.strip().str.lower()
+                            match = df_u[df_u['key'] == usuario_id.lower()]
+                            
+                            if not match.empty:
+                                tel_final = str(match.iloc[0]['telefone']).strip()
+                                nome_final = str(match.iloc[0]['nome']).strip()
+                            else:
+                                st.error(f"❌ '{usuario_id}': Usuário não encontrado no cadastro!")
+                                continue
+
+                        # 3. Validação Final
+                        cod_vale = str(row['CodigoVale']).strip()
+                        item_venda = str(row['Item']).strip()
+                        
+                        if len(tel_final) < 8:
+                            st.error(f"❌ '{usuario_id}': Telefone inválido/vazio ({tel_final}).")
                             continue
                             
-                        if cod_vale == '' or cod_vale == 'nan':
-                            msg = f"❌ Erro: Código do vale vazio na venda de {nome_destino}."
-                            st.write(msg); erros.append(msg)
+                        if cod_vale == "":
+                            st.error(f"❌ '{usuario_id}': Falta o Código do Vale.")
                             continue
-
-                        # 3. ENVIA
-                        sucesso, resposta = enviar_whatsapp_template(tel_destino, [nome_destino, item_venda, cod_vale])
+                            
+                        # 4. Envio
+                        ok, msg = enviar_whatsapp_template(tel_final, [nome_final, item_venda, cod_vale])
                         
-                        if sucesso:
-                            st.write(f"✅ Enviado para {nome_destino} ({tel_destino})")
+                        if ok:
+                            st.success(f"✅ Enviado para {nome_final} via {origem_dados}!")
                             enviados += 1
                         else:
-                            msg = f"⚠️ Erro API ({nome_destino}): {resposta}"
-                            st.write(msg); erros.append(msg)
+                            st.error(f"⚠️ Erro API ({nome_final}): {msg}")
                             
                     if enviados > 0:
-                        st.success(f"Concluído! {enviados} mensagens enviadas.")
+                        st.toast(f"Fim! {enviados} envios com sucesso.")
+                        # Limpa seleção e salva
                         edit_v_limpo = edit_v.drop(columns=["Enviar"])
                         conn.update(worksheet="vendas", data=edit_v_limpo)
                         time.sleep(3); st.rerun()
