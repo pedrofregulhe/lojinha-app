@@ -46,18 +46,22 @@ def converter_link_drive(url):
 def formatar_telefone(tel_bruto):
     """Limpa e garante o formato internacional para a Infobip"""
     apenas_numeros = re.sub(r'\D', '', str(tel_bruto))
-    if len(apenas_numeros) <= 11:
+    # Se tiver 10 ou 11 dígitos, assume que é BR e adiciona 55
+    if 10 <= len(apenas_numeros) <= 11:
         apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
 def enviar_whatsapp(telefone, mensagem):
-    """Integração direta com API Infobip usando Secrets"""
+    """Integração direta com API Infobip com DEBUG de erro"""
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"]
         api_key = st.secrets["INFOBIP_API_KEY"]
         sender = st.secrets["INFOBIP_SENDER"]
         
+        # Garante que a URL não tenha barra no final para evitar //
+        base_url = base_url.rstrip('/')
         url = f"{base_url}/whatsapp/1/message/text"
+        
         payload = {
             "from": sender,
             "to": formatar_telefone(telefone),
@@ -68,10 +72,17 @@ def enviar_whatsapp(telefone, mensagem):
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
+        
         response = requests.post(url, json=payload, headers=headers)
-        return response.status_code == 200
+        
+        # --- MODO DEBUG ATIVADO ---
+        if response.status_code not in [200, 201]:
+            st.error(f"⚠️ Erro Infobip ({response.status_code}): {response.text}")
+            return False
+            
+        return True
     except Exception as e:
-        st.error(f"Erro na Infobip: {e}")
+        st.error(f"⚠️ Erro Crítico de Conexão: {e}")
         return False
 
 # --- SESSÃO ---
@@ -87,6 +98,7 @@ if not st.session_state.get('logado', False):
 else:
     bg_style = ".stApp { background-color: #f4f8fb; }"
 
+# ATENÇÃO: As chaves {{ }} duplicadas no CSS são para evitar o erro de f-string
 st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
@@ -214,8 +226,30 @@ def tela_admin():
         df_p = carregar_dados("premios")
         edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p")
         if st.button("Salvar Prêmios"): conn.update(worksheet="premios", data=edit_p); st.rerun()
+    
+    # --- ABA DE TESTE E FERRAMENTAS ---
     with t4:
-        sh = st.text_input("Gerar Hash Senha:"); st.code(gerar_hash(sh)) if sh else None
+        st.markdown("### 🧪 Teste de Conexão WhatsApp")
+        st.caption("Use isso para testar se a API Key e URL estão funcionando corretamente.")
+        
+        c_test1, c_test2 = st.columns([2, 1])
+        tel_teste = c_test1.text_input("Número para teste (com DDD)", placeholder="ex: 11999999999")
+        msg_teste = c_test1.text_area("Mensagem de teste", "Teste de conexão Loja Culligan 🎁")
+        
+        if c_test1.button("Enviar Teste Agora"):
+            if tel_teste:
+                with st.spinner("Conectando à Infobip..."):
+                    sucesso = enviar_whatsapp(tel_teste, msg_teste)
+                    if sucesso:
+                        st.success("✅ Mensagem enviada com sucesso! A API está funcionando.")
+                    else:
+                        st.error("❌ Falha no envio. Leia a mensagem de erro acima.")
+            else:
+                st.warning("Preencha um número de telefone.")
+        
+        st.divider()
+        sh = st.text_input("Gerar Hash Senha (Ferramenta Auxiliar):")
+        st.code(gerar_hash(sh)) if sh else None
 
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
@@ -250,7 +284,15 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** via e-mail.")
+            st.info("""
+            ### 📜 Acompanhamento de Pedidos
+            Seu pedido foi realizado com sucesso e já está em nosso sistema! 🚀  
+            
+            **Informações importantes:**
+            * O prazo para entrega dos vales-presente é de até **5 dias úteis**.
+            * Você pode acompanhar o progresso de cada pedido através do seu login.
+            * Os presentes serão enviados diretamente para o **e-mail** informado no momento do resgate.
+            """)
             df_v = carregar_dados("vendas")
             if not df_v.empty:
                 meus = df_v[df_v['Usuario'].astype(str)==str(u_cod)]
