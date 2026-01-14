@@ -58,7 +58,7 @@ def formatar_telefone(tel_bruto):
 def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campanhas_envio"):
     """
     Envia WhatsApp usando Template.
-    Agora aceita o argumento 'nome_template' para alternar entre premio e saldo.
+    Aceita o argumento 'nome_template' para alternar entre premio e saldo.
     """
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -267,14 +267,27 @@ def tela_admin():
             df_v["CodigoVale"] = df_v["CodigoVale"].astype(str).replace(["nan", "None"], "")
 
             edit_v = st.data_editor(
-                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v8",
+                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v9",
                 column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)}
             )
             
-            if st.button("📤 Enviar Prêmios Selecionados", type="primary"):
+            # CRIAÇÃO DAS COLUNAS PARA OS BOTÕES
+            c_btn1, c_btn2 = st.columns(2)
+
+            # Botão 1: Salvar Alterações (Sem enviar)
+            if c_btn1.button("💾 Salvar Alterações"):
+                # Remove a coluna temporária 'Enviar' antes de salvar
+                df_salvar = edit_v.drop(columns=["Enviar"])
+                conn.update(worksheet="vendas", data=df_salvar)
+                st.success("Alterações salvas com sucesso!")
+                time.sleep(1)
+                st.rerun()
+
+            # Botão 2: Enviar WhatsApp
+            if c_btn2.button("📤 Enviar Prêmios Selecionados", type="primary"):
                 selecionados = edit_v[edit_v['Enviar'] == True]
                 if selecionados.empty:
-                    st.warning("Selecione alguém.")
+                    st.warning("Selecione alguém na caixa 'Enviar' antes de clicar aqui.")
                 else:
                     enviados = 0
                     barra = st.progress(0)
@@ -302,9 +315,13 @@ def tela_admin():
                         else: st.error(f"Erro {nome}: {msg}")
                     
                     if enviados > 0:
-                        st.success(f"{enviados} prêmios enviados!"); time.sleep(2); st.rerun()
+                        st.success(f"{enviados} prêmios enviados!")
+                        # Remove a marcação e salva
+                        df_limpo = edit_v.drop(columns=["Enviar"])
+                        conn.update(worksheet="vendas", data=df_limpo)
+                        time.sleep(2); st.rerun()
 
-    # --- ABA 2: USUÁRIOS & SALDOS (NOVIDADE) ---
+    # --- ABA 2: USUÁRIOS & SALDOS ---
     with t2:
         st.markdown("### 💰 Atualização de Saldos")
         st.info("Selecione os usuários que tiveram o saldo atualizado para avisá-los no WhatsApp.")
@@ -328,16 +345,16 @@ def tela_admin():
                 }
             )
             
-            c_btn1, c_btn2 = st.columns(2)
+            c_btn_u1, c_btn_u2 = st.columns(2)
             
             # Botão 1: Apenas Salvar alterações na planilha
-            if c_btn1.button("💾 Salvar Alterações"): 
+            if c_btn_u1.button("💾 Salvar Saldos"): 
                 conn.update(worksheet="usuarios", data=edit_u.drop(columns=["Notificar"]))
-                st.success("Dados salvos!")
+                st.success("Dados de usuários salvos!")
                 st.rerun()
                 
             # Botão 2: Enviar WhatsApp de Saldo
-            if c_btn2.button("📲 Enviar Aviso de Saldo", type="primary"):
+            if c_btn_u2.button("📲 Enviar Aviso de Saldo", type="primary"):
                 selecionados_u = edit_u[edit_u['Notificar'] == True]
                 
                 if selecionados_u.empty:
@@ -361,8 +378,6 @@ def tela_admin():
                             continue
                             
                         # USA O NOVO TEMPLATE DE SALDO
-                        # IMPORTANTE: Crie o template 'aviso_saldo_atualizado' na Infobip
-                        # Parametros: {{1}}=Nome, {{2}}=Saldo
                         ok, msg = enviar_whatsapp_template(
                             tel_u, 
                             [nome_u, saldo_u], 
@@ -377,7 +392,6 @@ def tela_admin():
                             
                     if enviados_u > 0:
                         st.success("Envios concluídos!")
-                        # Limpa seleção
                         edit_u_limpo = edit_u.drop(columns=["Notificar"])
                         conn.update(worksheet="usuarios", data=edit_u_limpo)
                         time.sleep(3); st.rerun()
@@ -391,7 +405,6 @@ def tela_admin():
         st.markdown(f"### 🧪 Teste de Envio")
         c1, c2 = st.columns([2, 1])
         tel_teste = c1.text_input("Número (com DDD)", placeholder="11999999999")
-        # Teste rápido para ver se o template de saldo existe
         if c1.button("Testar Template de SALDO"):
             if tel_teste:
                 ok, resp = enviar_whatsapp_template(
