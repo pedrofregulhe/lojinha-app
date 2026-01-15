@@ -78,14 +78,25 @@ def gerar_hash(senha):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(senha.encode('utf-8'), salt).decode('utf-8')
 
-def converter_link_drive(url):
+# --- NOVA FUNÇÃO INTELIGENTE PARA IMAGENS (GitHub & Drive) ---
+def processar_link_imagem(url):
     url = str(url).strip()
+    
+    # Caso 1: Link do GitHub (Converte 'blob' para 'raw')
+    # De: https://github.com/user/repo/blob/main/img.png
+    # Para: https://raw.githubusercontent.com/user/repo/main/img.png
+    if "github.com" in url and "/blob/" in url:
+        return url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+    
+    # Caso 2: Google Drive (Mantido para segurança)
     if "drive.google.com" in url:
         if "id=" in url: return url
         try:
             file_id = url.split("/")[-2]
             return f"https://drive.google.com/uc?export=view&id={file_id}"
         except: return url
+        
+    # Caso 3: Link normal, retorna como está
     return url
 
 def formatar_telefone(tel_bruto):
@@ -249,23 +260,20 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
 
 # --- TELAS ---
 def tela_login():
-    # Coluna do meio um pouco maior para o formulário
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         with st.form("f_login"):
-            # --- ÁREA DO TÍTULO E SUBTÍTULO ---
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 30px;">
                     <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; margin-bottom: 10px;">
-                        LOJINHA CULLI's
+                        LOJINHA CULLI
                     </h1>
                     <p style="color: #555555; font-size: 0.95rem; line-height: 1.4; font-weight: 400; margin: 0;">
                         Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
                     </p>
                 </div>
             """, unsafe_allow_html=True)
-            # ----------------------------------
             
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
             
@@ -395,7 +403,7 @@ def tela_principal():
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2>
-                        <p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você consegue realizar a troca dos seus pontos por prêmios incríveis!</p>
+                        <p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p>
                     </div>
                     <div style="text-align:right; color:white;">
                         <span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br>
@@ -423,7 +431,8 @@ def tela_principal():
                     with cols[i % 4]:
                         with st.container(border=True):
                             img = str(row.get('imagem', ''))
-                            if len(img) > 10: st.image(converter_link_drive(img))
+                            # USANDO A NOVA FUNÇÃO DE PROCESSAMENTO DE LINKS AQUI:
+                            if len(img) > 10: st.image(processar_link_imagem(img))
                             st.markdown(f"**{row['item']}**")
                             cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
