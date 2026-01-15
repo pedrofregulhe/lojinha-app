@@ -13,8 +13,14 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 ARQUIVO_LOGO = "logo.png"
 
 # --- CONEXÃO SQL (SUPABASE) ---
-# Usamos o nome "postgresql" que definimos no secrets.toml
 conn = st.connection("postgresql", type="sql")
+
+# --- INICIALIZAÇÃO DA SESSÃO (O QUE ESTAVA FALTANDO) ---
+if 'logado' not in st.session_state: st.session_state['logado'] = False
+if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
+if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
+if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
+if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
 # --- FUNÇÕES DE SUPORTE ---
 def carregar_logo_base64(caminho_arquivo):
@@ -27,7 +33,6 @@ def carregar_logo_base64(caminho_arquivo):
 
 def verificar_senha_hash(senha_digitada, hash_armazenado):
     try:
-        # Se a senha no banco não for hash (legado), compara texto puro (segurança na transição)
         if not hash_armazenado.startswith("$2b$"):
             return senha_digitada == hash_armazenado
         return bcrypt.checkpw(senha_digitada.encode('utf-8'), hash_armazenado.encode('utf-8'))
@@ -116,7 +121,6 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campan
 # --- LÓGICA DE NEGÓCIO ---
 
 def validar_login(user_input, pass_input):
-    # Busca usuário no SQL (seguro contra SQL Injection usando parametros :u)
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
     
     if df.empty: return False, None, None, 0
@@ -130,9 +134,7 @@ def validar_login(user_input, pass_input):
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate):
     try:
-        # Transação Atômica: Debita saldo E insere venda juntos. Se um falhar, tudo falha.
-        
-        # 1. Verifica saldo e pega dados do usuário
+        # Transação Atômica: Debita saldo E insere venda juntos.
         user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod})
         if user_df.empty: return False
         
@@ -143,7 +145,6 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
 
         nome_user = user_df.iloc[0]['nome']
 
-        # 2. Executa as atualizações
         with conn.session as s:
             # Debita
             s.execute(
@@ -172,7 +173,6 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
 
 def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone):
     try:
-        # Verifica duplicidade
         df = run_query("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario})
         if not df.empty: return False, "Usuário já existe!"
         
@@ -239,43 +239,31 @@ def tela_admin():
         
     t1, t2, t3, t4 = st.tabs(["📊 Entregas", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
     
-    # ABA 1: VENDAS (UPDATE EM LOTE)
+    # ABA 1: VENDAS
     with t1:
         df_v = run_query("SELECT * FROM vendas ORDER BY data DESC")
         if not df_v.empty:
             if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
-            
-            # Edição visual
             edit_v = st.data_editor(
                 df_v, use_container_width=True, hide_index=True, key="ed_vendas_sql",
                 column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)}
             )
-            
             c1, c2 = st.columns(2)
-            
-            # Botão SALVAR ALTERAÇÕES (Atualiza dados modificados no banco)
             if c1.button("💾 Salvar Alterações (SQL)"):
-                # Nota: Comparar o editado com o original para saber o que mudar é complexo.
-                # Estrategia simplificada: Atualizar linhas onde ID bater, focado em CodigoVale e Status
                 with conn.session as s:
                     for index, row in edit_v.iterrows():
-                        # Atualiza apenas campos críticos
                         s.execute(
                             text("""
                                 UPDATE vendas 
                                 SET codigo_vale = :cod, status = :st, nome_real = :nr, telefone = :tel 
                                 WHERE id = :id
                             """),
-                            {
-                                "cod": row['codigo_vale'], "st": row['status'], 
-                                "nr": row['nome_real'], "tel": row['telefone'], "id": row['id']
-                            }
+                            {"cod": row['codigo_vale'], "st": row['status'], "nr": row['nome_real'], "tel": row['telefone'], "id": row['id']}
                         )
                     s.commit()
                 registrar_log("Admin", "Atualizou tabela de vendas")
                 st.success("Dados atualizados no banco!"); time.sleep(1); st.rerun()
 
-            # Botão ENVIAR WHATSAPP
             if c2.button("📤 Enviar Prêmios", type="primary"):
                 selecionados = edit_v[edit_v['Enviar'] == True]
                 if selecionados.empty: st.warning("Selecione alguém.")
@@ -285,11 +273,9 @@ def tela_admin():
                         barra.progress((i+1)/total)
                         tel = str(row['telefone']); nome = str(row['nome_real']); item = str(row['item']); cod = str(row['codigo_vale'])
                         if not nome or nome == 'None': nome = str(row['usuario'])
-                        
                         if len(formatar_telefone(tel)) < 12 or not cod: continue
                         ok, msg = enviar_whatsapp_template(tel, [nome, item, cod], nome_template="premios_campanhas_envio")
                         if ok: enviados += 1
-                    
                     if enviados > 0:
                         registrar_log("Admin", f"Enviou {enviados} prêmios")
                         st.success(f"{enviados} enviados!"); time.sleep(2); st.rerun()
@@ -315,7 +301,6 @@ def tela_admin():
                 df_u, use_container_width=True, key="ed_u_sql",
                 column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False)}
             )
-            
             c_u1, c_u2 = st.columns(2)
             if c_u1.button("💾 Salvar Saldos (SQL)"):
                 with conn.session as sess:
@@ -327,7 +312,6 @@ def tela_admin():
                     sess.commit()
                 registrar_log("Admin", "Atualizou saldos")
                 st.success("Saldos salvos!"); st.rerun()
-                
             if c_u2.button("📲 Enviar Aviso Saldo", type="primary"):
                 sel = edit_u[edit_u['Notificar'] == True]
                 enviados = 0
@@ -343,19 +327,15 @@ def tela_admin():
         df_p = run_query("SELECT * FROM premios ORDER BY custo")
         edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p_sql")
         if st.button("Salvar Prêmios (SQL)"):
-            # Estrategia: Deleta tudo e recria? Não, perigoso.
-            # Update row by row. (Para novos itens, teria que ter lógica de Insert, mas vamos focar no Update simples)
             with conn.session as sess:
                 for i, row in edit_p.iterrows():
-                    if row['id']: # Se tem ID, atualiza
+                    if row['id']: 
                         sess.execute(
                             text("UPDATE premios SET item=:i, imagem=:im, custo=:c WHERE id=:id"),
                             {"i": row['item'], "im": row['imagem'], "c": row['custo'], "id": row['id']}
                         )
-                # Para inserir novos (linhas sem ID), o data_editor é chato com SQL.
-                # Sugestão: Crie novos premios via SQL Editor do Supabase ou faça um form de cadastro aqui igual de usuario.
                 sess.commit()
-            st.success("Prêmios atualizados (Apenas edições, novos use o Supabase)"); st.rerun()
+            st.success("Prêmios atualizados!"); st.rerun()
 
     with t4:
         st.write("### Ferramentas & Logs")
@@ -372,7 +352,6 @@ def tela_principal():
         st.markdown(f'<center><img src="{img}" style="max-height: 80px;"></center>', unsafe_allow_html=True)
         if st.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
     st.divider()
-    
     if tipo == 'admin': tela_admin()
     else:
         t1, t2 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates"])
