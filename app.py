@@ -31,7 +31,7 @@ else:
 
 st.markdown(f"""
     <style>
-    /* Importando a fonte POPPINS (Mais moderna e 'legal') */
+    /* Importando a fonte POPPINS */
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
     
     html, body, [class*="css"] {{ font-family: 'Poppins', sans-serif; }}
@@ -254,14 +254,18 @@ def tela_login():
     with c2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         with st.form("f_login"):
-            # Título Tipográfico (Sem Logo)
+            # --- ÁREA DO TÍTULO E SUBTÍTULO ---
             st.markdown("""
-                <div style="text-align: center; margin-bottom: 25px;">
-                    <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; line-height: 1.1;">
-                        Bem Vindo<br>  Lojinha Culli
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; margin-bottom: 10px;">
+                        LOJINHA CULLI
                     </h1>
+                    <p style="color: #555555; font-size: 0.95rem; line-height: 1.4; font-weight: 400; margin: 0;">
+                        Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
+                    </p>
                 </div>
             """, unsafe_allow_html=True)
+            # ----------------------------------
             
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
             
@@ -383,11 +387,9 @@ def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
     # Header Principal (Sem Logo, Botões Alinhados)
-    # A proporção [3, 1] garante que os botões fiquem confortáveis na direita
     c_info, c_acoes = st.columns([3, 1])
     
     with c_info:
-        # Texto de boas vindas
         st.markdown(f'''
             <div class="header-style">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -404,7 +406,6 @@ def tela_principal():
         ''', unsafe_allow_html=True)
         
     with c_acoes:
-        # Botões ocupando a altura para ficarem centralizados verticalmente (pelo CSS do [data-testid="column"])
         cs, cl = st.columns([1, 1], gap="small")
         if cs.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
         if cl.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
