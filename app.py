@@ -439,7 +439,7 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** via e-mail.")
+            st.info("### 📜 Acompanhamento\nPedido recebido! O mesmo será enviado em até **5 dias úteis** no seu Whatsapp 🎁 ")
             meus = run_query("SELECT data, item, valor, status, email FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod})
             st.dataframe(meus, use_container_width=True)
 
