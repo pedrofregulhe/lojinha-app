@@ -43,6 +43,8 @@ st.markdown(f"""
     div.stButton > button[kind="secondary"] {{ background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
     div.stButton > button[kind="primary"] {{ background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
     .btn-container-alinhado {{ margin-top: -10px; }}
+    /* Classe para mensagens de sucesso grandes */
+    .big-success {{ padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -145,7 +147,6 @@ def registrar_log(acao, detalhes):
 # --- LÓGICA DE NEGÓCIO ---
 
 def validar_login(user_input, pass_input):
-    # Alterado para ORDER BY id para manter consistência
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
     
     if df.empty: return False, None, None, 0
@@ -231,24 +232,18 @@ def abrir_modal_senha(usuario_cod):
 @st.dialog("🎁 Confirmar Resgate")
 def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
     st.write(f"Resgatando: **{item_nome}** por **{custo} pts**.")
-    
-    # CORREÇÃO: Usar st.form garante que o botão funcione dentro do Dialog
     with st.form("form_resgate"):
         email = st.text_input("E-mail:", placeholder="exemplo@email.com")
         tel = st.text_input("WhatsApp (DDD+Num):", placeholder="Ex: 34999998888")
         submitted = st.form_submit_button("CONFIRMAR", type="primary", use_container_width=True)
     
     if submitted:
-        if "@" not in email: 
-            st.error("E-mail inválido.")
-            return
+        if "@" not in email: st.error("E-mail inválido."); return
         t_limpo = formatar_telefone(tel)
-        if len(t_limpo) < 12: 
-            st.error("Telefone inválido! (Ex: 34991727088).")
-            return
-            
+        if len(t_limpo) < 12: st.error("Telefone inválido! (Ex: 34991727088)."); return
         if salvar_venda(usuario_cod, item_nome, custo, email, t_limpo):
-            st.success("Sucesso! Compra registrada."); st.balloons(); time.sleep(2); st.rerun()
+            st.balloons() # Efeito visual de festa!
+            st.success("Sucesso! Compra registrada."); time.sleep(2); st.rerun()
 
 # --- TELAS ---
 def tela_login():
@@ -267,14 +262,19 @@ def tela_login():
 def tela_admin():
     c_titulo, c_refresh = st.columns([4, 1])
     c_titulo.subheader("🛠️ Painel Admin")
+    
+    # MELHORIA: Toast de Feedback para Atualização
     if c_refresh.button("🔄 Atualizar Dados"):
-        st.cache_data.clear(); st.rerun()
+        st.cache_data.clear()
+        st.toast("Dados sincronizados com sucesso!", icon="✅")
+        time.sleep(1) # Dá tempo de ler antes de piscar a tela
+        st.rerun()
         
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Ferramentas"])
     
-    # ABA 1: VENDAS (Ordenada por Data descrescente, como no SQL)
+    # ABA 1: VENDAS
     with t1:
-        df_v = run_query("SELECT * FROM vendas ORDER BY id DESC") # Mostra as últimas primeiro
+        df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
         if not df_v.empty:
             if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
             edit_v = st.data_editor(
@@ -290,7 +290,10 @@ def tela_admin():
                             {"cod": row['codigo_vale'], "st": row['status'], "nr": row['nome_real'], "tel": row['telefone'], "id": row['id']}
                         )
                     s.commit()
-                registrar_log("Admin", "Editou vendas"); st.success("Salvo!"); time.sleep(1); st.rerun()
+                registrar_log("Admin", "Editou vendas")
+                st.success("✅ Alterações salvas com sucesso!")
+                time.sleep(2) # Mais tempo para ler
+                st.rerun()
 
             if c2.button("📤 Enviar Prêmios", type="primary"):
                 selecionados = edit_v[edit_v['Enviar'] == True]
@@ -304,9 +307,14 @@ def tela_admin():
                         if len(formatar_telefone(tel)) < 12 or not cod: continue
                         ok, msg = enviar_whatsapp_template(tel, [nome, item, cod], nome_template="premios_campanhas_envio")
                         if ok: enviados += 1
-                    if enviados > 0: registrar_log("Admin", f"Enviou {enviados} prêmios"); st.success(f"{enviados} enviados!"); time.sleep(2); st.rerun()
+                    if enviados > 0: 
+                        registrar_log("Admin", f"Enviou {enviados} prêmios")
+                        st.balloons() # Festa!
+                        st.markdown(f'<div class="big-success">🚀 {enviados} Prêmios Enviados com Sucesso!</div>', unsafe_allow_html=True)
+                        time.sleep(3) # Tempo bom para celebrar
+                        st.rerun()
 
-    # ABA 2: USUÁRIOS (Ordenado por ID - Ordem de criação no Neon)
+    # ABA 2: USUÁRIOS
     with t2:
         with st.expander("➕ Cadastrar Novo Usuário"):
             with st.form("form_novo"):
@@ -316,11 +324,10 @@ def tela_admin():
                 bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin"])
                 if st.form_submit_button("Cadastrar"):
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t)
-                    if ok: st.success(msg); time.sleep(1); st.rerun()
+                    if ok: st.success(msg); time.sleep(1.5); st.rerun()
                     else: st.error(msg)
         
         st.divider()
-        # AQUI: Mudei para ORDER BY id (Ordem da planilha/banco)
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
@@ -337,7 +344,9 @@ def tela_admin():
                             {"s": row['saldo'], "t": row['telefone'], "n": row['nome'], "id": row['id']}
                         )
                     sess.commit()
-                registrar_log("Admin", "Atualizou saldos"); st.success("Salvo!"); st.rerun()
+                registrar_log("Admin", "Atualizou saldos")
+                st.success("✅ Saldos atualizados!"); time.sleep(2); st.rerun()
+                
             if c_u2.button("📲 Enviar Aviso Saldo", type="primary"):
                 sel = edit_u[edit_u['Notificar'] == True]
                 enviados = 0
@@ -346,11 +355,13 @@ def tela_admin():
                     if len(formatar_telefone(tel)) < 12: continue
                     ok, _ = enviar_whatsapp_template(tel, [nome, saldo], "aviso_saldo_atualizado")
                     if ok: enviados += 1
-                if enviados > 0: st.success(f"{enviados} avisos!"); time.sleep(2); st.rerun()
+                if enviados > 0: 
+                    st.balloons()
+                    st.markdown(f'<div class="big-success">📲 {enviados} Avisos Enviados!</div>', unsafe_allow_html=True)
+                    time.sleep(3); st.rerun()
 
-    # ABA 3: PRÊMIOS (Ordenado por ID - Ordem de criação no Neon)
+    # ABA 3: PRÊMIOS
     with t3:
-        # AQUI: Mudei para ORDER BY id
         df_p = run_query("SELECT * FROM premios ORDER BY id") 
         edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p_sql")
         if st.button("Salvar Prêmios"):
@@ -362,7 +373,7 @@ def tela_admin():
                             {"i": row['item'], "im": row['imagem'], "c": row['custo'], "id": row['id']}
                         )
                 sess.commit()
-            st.success("Prêmios atualizados!"); st.rerun()
+            st.success("✅ Catálogo atualizado!"); time.sleep(2); st.rerun()
 
     with t4:
         st.write("### Ferramentas & Logs")
@@ -388,7 +399,6 @@ def tela_principal():
     else:
         t1, t2 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates"])
         with t1:
-            # AQUI: Mudei para ORDER BY id (Ordem da planilha)
             df_p = run_query("SELECT * FROM premios ORDER BY id") 
             if not df_p.empty:
                 cols = st.columns(4)
