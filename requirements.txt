@@ -1,8 +1,6 @@
 streamlit
 pandas
-gspread
-oauth2client
-plotly
 bcrypt
+requests
 sqlalchemy
 psycopg2-binary
