@@ -10,7 +10,6 @@ import re
 
 # --- CONFIGURAÇÕES GERAIS ---
 st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
-ARQUIVO_LOGO = "logo.png"
 
 # --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
@@ -24,40 +23,48 @@ if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
 # --- CSS ---
 if not st.session_state.get('logado', False):
-    # Fundo animado apenas na tela de login
+    # Fundo animado (Login)
     bg_style = ".stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }"
 else:
-    # Fundo neutro dentro do app
+    # Fundo neutro (App)
     bg_style = ".stApp { background-color: #f4f8fb; }"
 
 st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700;900&display=swap');
-    html, body, [class*="css"] {{ font-family: 'Roboto', sans-serif; }}
+    /* Importando a fonte POPPINS (Mais moderna e 'legal') */
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
+    
+    html, body, [class*="css"] {{ font-family: 'Poppins', sans-serif; }}
     header {{ visibility: hidden; }}
     .stDeployButton {{ display: none; }}
+    
     @keyframes gradient {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
     {bg_style}
+    
     .block-container {{ padding-top: 2rem !important; padding-bottom: 2rem !important; }}
+    
+    /* Estilo do Formulário de Login */
     [data-testid="stForm"] {{ background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none; }}
-    .header-style {{ background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 10s ease infinite; padding: 20px 25px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%; }}
+    
+    /* Estilo do Cabeçalho Principal (Onde fica o saldo) */
+    .header-style {{ background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 10s ease infinite; padding: 25px 30px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%; }}
+    
+    /* Imagens dos Prêmios */
     [data-testid="stImage"] img {{ height: 150px !important; object-fit: contain !important; border-radius: 10px; }}
-    div.stButton > button[kind="secondary"] {{ background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
-    div.stButton > button[kind="primary"] {{ background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
-    .btn-container-alinhado {{ margin-top: -10px; }}
+    
+    /* Botões */
+    div.stButton > button[kind="secondary"] {{ background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 45px; font-weight: 600; width: 100%; }}
+    div.stButton > button[kind="primary"] {{ background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 45px; font-weight: 600; width: 100%; }}
+    
     /* Classe para mensagens de sucesso grandes */
     .big-success {{ padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }}
+    
+    /* Ajuste de alinhamento vertical para os botões do header ficarem no meio */
+    [data-testid="column"] {{ display: flex; flex-direction: column; justify-content: center; }}
     </style>
 """, unsafe_allow_html=True)
 
 # --- FUNÇÕES DE SUPORTE ---
-def carregar_logo_base64(caminho_arquivo):
-    try:
-        with open(caminho_arquivo, "rb") as image_file:
-            encoded_string = base64.b64encode(image_file.read()).decode()
-        return f"data:image/png;base64,{encoded_string}"
-    except Exception:
-        return "https://cdn-icons-png.flaticon.com/512/6213/6213388.png"
 
 def verificar_senha_hash(senha_digitada, hash_armazenado):
     try:
@@ -126,11 +133,9 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campan
 # --- FUNÇÕES DE BANCO DE DADOS (SQL) ---
 
 def run_query(query_str, params=None):
-    """Executa leitura (SELECT)"""
     return conn.query(query_str, params=params, ttl=0)
 
 def run_transaction(query_str, params=None):
-    """Executa escrita (INSERT, UPDATE)"""
     with conn.session as s:
         s.execute(text(query_str), params if params else {})
         s.commit()
@@ -150,12 +155,9 @@ def registrar_log(acao, detalhes):
 
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
-    
     if df.empty: return False, None, None, 0
-    
     linha = df.iloc[0]
     hash_banco = linha['senha']
-    
     if verificar_senha_hash(pass_input.strip(), hash_banco):
         return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo'])
     return False, None, None, 0
@@ -202,7 +204,6 @@ def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone):
         if not df.empty: return False, "Usuário já existe!"
         
         senha_hash = gerar_hash(senha)
-        
         run_transaction("""
             INSERT INTO usuarios (usuario, senha, nome, saldo, tipo, telefone)
             VALUES (:u, :s, :n, :bal, :t, :tel)
@@ -210,7 +211,6 @@ def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone):
             "u": usuario, "s": senha_hash, "n": nome, 
             "bal": saldo, "t": tipo, "tel": formatar_telefone(telefone)
         })
-        
         registrar_log("Novo Cadastro", f"Criou usuário: {usuario}")
         return True, "Cadastrado com sucesso!"
     except Exception as e:
@@ -249,14 +249,23 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
 
 # --- TELAS ---
 def tela_login():
+    # Coluna do meio um pouco maior para o formulário
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         with st.form("f_login"):
-            # --- ALTERAÇÃO AQUI: Removida a imagem e adicionado o texto estilizado ---
-            st.markdown('<h1 style="text-align: center; color: #003366; font-weight: 900; font-size: 2.5rem; margin-bottom: 30px;">Bem Vindo a<br>Lojinha Culli.</h1>', unsafe_allow_html=True)
-            # -------------------------------------------------------------------------
+            # Título Tipográfico (Sem Logo)
+            st.markdown("""
+                <div style="text-align: center; margin-bottom: 25px;">
+                    <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; line-height: 1.1;">
+                        Bem Vindo a<br>Lojinha Culli
+                    </h1>
+                </div>
+            """, unsafe_allow_html=True)
+            
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, n, t, sld = validar_login(u, s)
                 if ok: st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld}); st.rerun()
@@ -274,7 +283,6 @@ def tela_admin():
         
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Ferramentas"])
     
-    # ABA 1: VENDAS
     with t1:
         df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
         if not df_v.empty:
@@ -287,15 +295,11 @@ def tela_admin():
             if c1.button("💾 Salvar Alterações"):
                 with conn.session as s:
                     for index, row in edit_v.iterrows():
-                        s.execute(
-                            text("UPDATE vendas SET codigo_vale=:cod, status=:st, nome_real=:nr, telefone=:tel WHERE id=:id"),
-                            {"cod": row['codigo_vale'], "st": row['status'], "nr": row['nome_real'], "tel": row['telefone'], "id": row['id']}
-                        )
+                        s.execute(text("UPDATE vendas SET codigo_vale=:cod, status=:st, nome_real=:nr, telefone=:tel WHERE id=:id"),
+                                  {"cod": row['codigo_vale'], "st": row['status'], "nr": row['nome_real'], "tel": row['telefone'], "id": row['id']})
                     s.commit()
                 registrar_log("Admin", "Editou vendas")
-                st.success("✅ Alterações salvas com sucesso!")
-                time.sleep(2)
-                st.rerun()
+                st.success("✅ Alterações salvas com sucesso!"); time.sleep(2); st.rerun()
 
             if c2.button("📤 Enviar Prêmios", type="primary"):
                 selecionados = edit_v[edit_v['Enviar'] == True]
@@ -313,10 +317,8 @@ def tela_admin():
                         registrar_log("Admin", f"Enviou {enviados} prêmios")
                         st.balloons()
                         st.markdown(f'<div class="big-success">🚀 {enviados} Prêmios Enviados com Sucesso!</div>', unsafe_allow_html=True)
-                        time.sleep(3)
-                        st.rerun()
+                        time.sleep(3); st.rerun()
 
-    # ABA 2: USUÁRIOS
     with t2:
         with st.expander("➕ Cadastrar Novo Usuário"):
             with st.form("form_novo"):
@@ -341,10 +343,8 @@ def tela_admin():
             if c_u1.button("💾 Salvar Saldos"):
                 with conn.session as sess:
                     for i, row in edit_u.iterrows():
-                        sess.execute(
-                            text("UPDATE usuarios SET saldo = :s, telefone = :t, nome = :n WHERE id = :id"),
-                            {"s": row['saldo'], "t": row['telefone'], "n": row['nome'], "id": row['id']}
-                        )
+                        sess.execute(text("UPDATE usuarios SET saldo = :s, telefone = :t, nome = :n WHERE id = :id"),
+                                     {"s": row['saldo'], "t": row['telefone'], "n": row['nome'], "id": row['id']})
                     sess.commit()
                 registrar_log("Admin", "Atualizou saldos")
                 st.success("✅ Saldos atualizados!"); time.sleep(2); st.rerun()
@@ -362,7 +362,6 @@ def tela_admin():
                     st.markdown(f'<div class="big-success">📲 {enviados} Avisos Enviados!</div>', unsafe_allow_html=True)
                     time.sleep(3); st.rerun()
 
-    # ABA 3: PRÊMIOS
     with t3:
         df_p = run_query("SELECT * FROM premios ORDER BY id") 
         edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p_sql")
@@ -370,10 +369,8 @@ def tela_admin():
             with conn.session as sess:
                 for i, row in edit_p.iterrows():
                     if row['id']: 
-                        sess.execute(
-                            text("UPDATE premios SET item=:i, imagem=:im, custo=:c WHERE id=:id"),
-                            {"i": row['item'], "im": row['imagem'], "c": row['custo'], "id": row['id']}
-                        )
+                        sess.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c WHERE id=:id"),
+                                     {"i": row['item'], "im": row['imagem'], "c": row['custo'], "id": row['id']})
                 sess.commit()
             st.success("✅ Catálogo atualizado!"); time.sleep(2); st.rerun()
 
@@ -384,17 +381,34 @@ def tela_admin():
 
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
-    c_info, c_acoes = st.columns([3, 1.1])
+    
+    # Header Principal (Sem Logo, Botões Alinhados)
+    # A proporção [3, 1] garante que os botões fiquem confortáveis na direita
+    c_info, c_acoes = st.columns([3, 1])
+    
     with c_info:
-        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+        # Texto de boas vindas
+        st.markdown(f'''
+            <div class="header-style">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2>
+                        <p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p>
+                    </div>
+                    <div style="text-align:right; color:white;">
+                        <span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br>
+                        <span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts
+                    </div>
+                </div>
+            </div>
+        ''', unsafe_allow_html=True)
+        
     with c_acoes:
-        img = carregar_logo_base64(ARQUIVO_LOGO)
-        st.markdown(f'<center><img src="{img}" style="max-height: 80px;"></center>', unsafe_allow_html=True)
-        st.markdown('<div class="btn-container-alinhado">', unsafe_allow_html=True)
-        cs, cl = st.columns([1.1, 1])
+        # Botões ocupando a altura para ficarem centralizados verticalmente (pelo CSS do [data-testid="column"])
+        cs, cl = st.columns([1, 1], gap="small")
         if cs.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
         if cl.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+
     st.divider()
     
     if tipo == 'admin': tela_admin()
