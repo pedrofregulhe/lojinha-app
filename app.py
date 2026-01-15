@@ -266,7 +266,7 @@ def tela_login():
         with st.form("f_login"):
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 30px;">
-                    <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; margin-bottom: 10px;">
+                    <h1 style="color: #003366; font-weight: 700; font-size: 3rem; margin: 0; margin-bottom: 10px;">
                         🎁 LOJINHA CULLI 🎁
                     </h1>
                     <p style="color: #555555; font-size: 0.95rem; line-height: 1.4; font-weight: 400; margin: 0;">
