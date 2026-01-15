@@ -270,7 +270,7 @@ def tela_login():
                           Lojinha Culli's
                     </h1>
                     <p style="color: #555555; font-size: 0.95rem; line-height: 1.4; font-weight: 400; margin: 0;">
-                        Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
+                        Realize o login para trocar seus pontos por prêmios<br>e acompanhar seus pedidos.
                     </p>
                 </div>
             """, unsafe_allow_html=True)
