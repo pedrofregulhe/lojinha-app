@@ -12,15 +12,39 @@ import re
 st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 ARQUIVO_LOGO = "logo.png"
 
-# --- CONEXÃO SQL (SUPABASE) ---
+# --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
 
-# --- INICIALIZAÇÃO DA SESSÃO (O QUE ESTAVA FALTANDO) ---
+# --- INICIALIZAÇÃO DA SESSÃO ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
 if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
 if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
 if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
+
+# --- CSS (IDÊNTICO AO SEU ARQUIVO ORIGINAL) ---
+if not st.session_state.get('logado', False):
+    bg_style = ".stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }"
+else:
+    bg_style = ".stApp { background-color: #f4f8fb; }"
+
+st.markdown(f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+    html, body, [class*="css"] {{ font-family: 'Roboto', sans-serif; }}
+    header {{ visibility: hidden; }}
+    .stDeployButton {{ display: none; }}
+    @keyframes gradient {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
+    {bg_style}
+    .block-container {{ padding-top: 2rem !important; padding-bottom: 2rem !important; }}
+    [data-testid="stForm"] {{ background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none; }}
+    .header-style {{ background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 10s ease infinite; padding: 20px 25px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%; }}
+    [data-testid="stImage"] img {{ height: 150px !important; object-fit: contain !important; border-radius: 10px; }}
+    div.stButton > button[kind="secondary"] {{ background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
+    div.stButton > button[kind="primary"] {{ background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 40px; font-weight: bold; width: 100%; }}
+    .btn-container-alinhado {{ margin-top: -10px; }}
+    </style>
+""", unsafe_allow_html=True)
 
 # --- FUNÇÕES DE SUPORTE ---
 def carregar_logo_base64(caminho_arquivo):
@@ -61,29 +85,6 @@ def formatar_telefone(tel_bruto):
         apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
-# --- FUNÇÕES DE BANCO DE DADOS (SQL) ---
-
-def run_query(query_str, params=None):
-    """Executa leitura (SELECT)"""
-    return conn.query(query_str, params=params, ttl=0)
-
-def run_transaction(query_str, params=None):
-    """Executa escrita (INSERT, UPDATE)"""
-    with conn.session as s:
-        s.execute(text(query_str), params if params else {})
-        s.commit()
-
-def registrar_log(acao, detalhes):
-    try:
-        resp = st.session_state.get('usuario_nome', 'Sistema')
-        sql = """
-            INSERT INTO logs (data, responsavel, acao, detalhes)
-            VALUES (NOW(), :resp, :acao, :det)
-        """
-        run_transaction(sql, {"resp": resp, "acao": acao, "det": detalhes})
-    except Exception as e:
-        print(f"Erro log: {e}")
-
 def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campanhas_envio"):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -118,6 +119,29 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campan
         return True, f"Enviado para {tel_final}"
     except Exception as e: return False, f"Erro Conexão: {str(e)}"
 
+# --- FUNÇÕES DE BANCO DE DADOS (SQL) ---
+
+def run_query(query_str, params=None):
+    """Executa leitura (SELECT)"""
+    return conn.query(query_str, params=params, ttl=0)
+
+def run_transaction(query_str, params=None):
+    """Executa escrita (INSERT, UPDATE)"""
+    with conn.session as s:
+        s.execute(text(query_str), params if params else {})
+        s.commit()
+
+def registrar_log(acao, detalhes):
+    try:
+        resp = st.session_state.get('usuario_nome', 'Sistema')
+        sql = """
+            INSERT INTO logs (data, responsavel, acao, detalhes)
+            VALUES (NOW(), :resp, :acao, :det)
+        """
+        run_transaction(sql, {"resp": resp, "acao": acao, "det": detalhes})
+    except Exception as e:
+        print(f"Erro log: {e}")
+
 # --- LÓGICA DE NEGÓCIO ---
 
 def validar_login(user_input, pass_input):
@@ -134,7 +158,6 @@ def validar_login(user_input, pass_input):
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate):
     try:
-        # Transação Atômica: Debita saldo E insere venda juntos.
         user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod})
         if user_df.empty: return False
         
@@ -146,12 +169,10 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
         nome_user = user_df.iloc[0]['nome']
 
         with conn.session as s:
-            # Debita
             s.execute(
                 text("UPDATE usuarios SET saldo = saldo - :custo WHERE LOWER(usuario) = LOWER(:u)"),
                 {"custo": custo, "u": usuario_cod}
             )
-            # Registra Venda
             s.execute(
                 text("""
                     INSERT INTO vendas (data, usuario, item, valor, status, email, nome_real, telefone)
@@ -230,14 +251,17 @@ def tela_login():
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, n, t, sld = validar_login(u, s)
                 if ok: st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld}); st.rerun()
-                else: st.toast("Login inválido ou usuário inexistente (verifique se já criou no Supabase)", icon="❌")
+                else: st.toast("Login inválido", icon="❌")
 
 def tela_admin():
-    c_tit, c_ref = st.columns([4,1])
-    c_tit.subheader("🛠️ Painel Admin (SQL)")
-    if c_ref.button("🔄 Atualizar"): st.rerun()
+    # --- CABEÇALHO DO ADMIN COM BOTÃO DE REFRESH ---
+    c_titulo, c_refresh = st.columns([4, 1])
+    c_titulo.subheader("🛠️ Painel Admin")
+    if c_refresh.button("🔄 Atualizar Dados"):
+        st.cache_data.clear()
+        st.rerun()
         
-    t1, t2, t3, t4 = st.tabs(["📊 Entregas", "👥 Usuários", "🎁 Prêmios", "🛠️ Ferramentas"])
+    t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Ferramentas"])
     
     # ABA 1: VENDAS
     with t1:
@@ -249,7 +273,7 @@ def tela_admin():
                 column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)}
             )
             c1, c2 = st.columns(2)
-            if c1.button("💾 Salvar Alterações (SQL)"):
+            if c1.button("💾 Salvar Alterações"):
                 with conn.session as s:
                     for index, row in edit_v.iterrows():
                         s.execute(
@@ -262,7 +286,7 @@ def tela_admin():
                         )
                     s.commit()
                 registrar_log("Admin", "Atualizou tabela de vendas")
-                st.success("Dados atualizados no banco!"); time.sleep(1); st.rerun()
+                st.success("Dados salvos!"); time.sleep(1); st.rerun()
 
             if c2.button("📤 Enviar Prêmios", type="primary"):
                 selecionados = edit_v[edit_v['Enviar'] == True]
@@ -302,7 +326,7 @@ def tela_admin():
                 column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False)}
             )
             c_u1, c_u2 = st.columns(2)
-            if c_u1.button("💾 Salvar Saldos (SQL)"):
+            if c_u1.button("💾 Salvar Saldos"):
                 with conn.session as sess:
                     for i, row in edit_u.iterrows():
                         sess.execute(
@@ -326,7 +350,7 @@ def tela_admin():
     with t3:
         df_p = run_query("SELECT * FROM premios ORDER BY custo")
         edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p_sql")
-        if st.button("Salvar Prêmios (SQL)"):
+        if st.button("Salvar Prêmios"):
             with conn.session as sess:
                 for i, row in edit_p.iterrows():
                     if row['id']: 
@@ -346,12 +370,17 @@ def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     c_info, c_acoes = st.columns([3, 1.1])
     with c_info:
-        st.markdown(f'<div class="header-style"><h2>Olá, {u_nome}! 👋</h2><p>Bem Vindo.</p><div style="text-align:right;">SALDO<br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     with c_acoes:
         img = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(f'<center><img src="{img}" style="max-height: 80px;"></center>', unsafe_allow_html=True)
-        if st.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
+        st.markdown('<div class="btn-container-alinhado">', unsafe_allow_html=True)
+        cs, cl = st.columns([1.1, 1])
+        if cs.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
+        if cl.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
     st.divider()
+    
     if tipo == 'admin': tela_admin()
     else:
         t1, t2 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates"])
@@ -370,7 +399,8 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            meus = run_query("SELECT * FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod})
+            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** via e-mail.")
+            meus = run_query("SELECT data, item, valor, status, email FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod})
             st.dataframe(meus, use_container_width=True)
 
 if __name__ == "__main__":
