@@ -119,45 +119,25 @@ st.markdown(f"""
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- CACHE E DADOS ---
-
-# Melhoria 2: Cache para performance (evita ler a planilha toda hora)
 @st.cache_data(ttl=10)
 def carregar_dados(aba):
     try: return conn.read(worksheet=aba, ttl=0)
     except: return pd.DataFrame()
 
-# Melhoria 1: Sistema de Logs
 def registrar_log(acao, detalhes):
     try:
-        # Tenta ler a aba de logs
-        try:
-            df_logs = conn.read(worksheet="logs", ttl=0)
-        except:
-            # Se não existir, cria estrutura vazia na memória
-            df_logs = pd.DataFrame(columns=["Data", "Responsavel", "Acao", "Detalhes"])
-        
-        # Quem está fazendo a ação?
+        try: df_logs = conn.read(worksheet="logs", ttl=0)
+        except: df_logs = pd.DataFrame(columns=["Data", "Responsavel", "Acao", "Detalhes"])
         resp = st.session_state.get('usuario_nome', 'Sistema')
-        
-        novo_log = pd.DataFrame([{
-            "Data": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            "Responsavel": resp,
-            "Acao": acao,
-            "Detalhes": detalhes
-        }])
-        
-        # Salva o log
+        novo_log = pd.DataFrame([{ "Data": datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "Responsavel": resp, "Acao": acao, "Detalhes": detalhes }])
         conn.update(worksheet="logs", data=pd.concat([df_logs, novo_log], ignore_index=True))
-        
-    except Exception as e:
-        print(f"Erro ao salvar log: {e}")
+    except Exception as e: print(f"Erro log: {e}")
 
 def limpar_dado(dado): 
     texto = str(dado).strip()
     return texto.replace('.0', '') if texto.endswith('.0') else texto
 
 def validar_login(user_input, pass_input):
-    # Precisamos limpar o cache para garantir que login pegue dados frescos se mudou senha
     st.cache_data.clear()
     df = carregar_dados("usuarios")
     if df.empty: return False, None, None, 0
@@ -175,44 +155,50 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
     try:
         df_u = carregar_dados("usuarios")
         usuario_row = df_u[df_u['usuario'].astype(str).str.lower() == usuario_cod.lower()]
-        
         nome_user = ""
-        
         if not usuario_row.empty:
             idx = usuario_row.index[0]
             nome_user = str(usuario_row.at[idx, 'nome'])
-            
-            # Debita saldo
             df_u.at[idx, 'saldo'] = float(df_u.at[idx, 'saldo']) - custo
             conn.update(worksheet="usuarios", data=df_u)
-        else:
-            return False
+        else: return False
 
         df_v = carregar_dados("vendas")
         nova = pd.DataFrame([{
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"), 
-            "Usuario": usuario_cod, 
-            "Item": item_nome, 
-            "Valor": custo, 
-            "Status": "Pendente", 
-            "Email": email_contato,
-            "NomeReal": nome_user,
-            "Telefone": telefone_resgate
+            "Usuario": usuario_cod, "Item": item_nome, "Valor": custo, "Status": "Pendente", 
+            "Email": email_contato, "NomeReal": nome_user, "Telefone": telefone_resgate
         }])
-        
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
-        
-        # LOG DA VENDA
-        registrar_log("Resgate de Prêmio", f"Usuário: {nome_user} | Item: {item_nome} | Valor: {custo}")
-        
+        registrar_log("Resgate", f"Usuário: {nome_user} | Item: {item_nome}")
         st.session_state['saldo_atual'] -= custo
-        
-        # Limpa cache para atualizar visualização
         st.cache_data.clear()
         return True
+    except Exception as e: return False
+
+def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone):
+    try:
+        df_u = carregar_dados("usuarios")
+        
+        # Verifica se usuário já existe
+        if usuario.lower() in df_u['usuario'].astype(str).str.lower().values:
+            return False, "Usuário já existe!"
+        
+        nova_linha = pd.DataFrame([{
+            "usuario": usuario,
+            "senha": gerar_hash(senha), # Criptografa a senha
+            "nome": nome,
+            "saldo": float(saldo),
+            "tipo": tipo,
+            "telefone": formatar_telefone(telefone)
+        }])
+        
+        conn.update(worksheet="usuarios", data=pd.concat([df_u, nova_linha], ignore_index=True))
+        registrar_log("Novo Cadastro", f"Criou usuário: {usuario} ({nome})")
+        st.cache_data.clear()
+        return True, "Usuário cadastrado com sucesso!"
     except Exception as e:
-        print(e)
-        return False
+        return False, f"Erro: {str(e)}"
 
 # --- MODAIS ---
 @st.dialog("🔐 Alterar Senha")
@@ -224,25 +210,19 @@ def abrir_modal_senha(usuario_cod):
             df = carregar_dados("usuarios")
             df.loc[df['usuario'].astype(str).str.lower() == usuario_cod.lower(), 'senha'] = gerar_hash(n)
             conn.update(worksheet="usuarios", data=df)
-            registrar_log("Alteração de Senha", f"Usuário: {usuario_cod}")
-            st.cache_data.clear()
-            st.success("Senha alterada!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
+            registrar_log("Senha Alterada", f"Usuário: {usuario_cod}")
+            st.cache_data.clear(); st.success("Senha alterada!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
 
 @st.dialog("🎁 Confirmar Resgate")
 def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
     st.write(f"Resgatando: **{item_nome}** por **{custo} pts**.")
-    email_contato = st.text_input("E-mail para envio:", placeholder="exemplo@email.com")
-    telefone_contato = st.text_input("Seu WhatsApp (DDD + Numero):", placeholder="Ex: 34999998888")
-    
+    email = st.text_input("E-mail:", placeholder="exemplo@email.com")
+    tel = st.text_input("WhatsApp (DDD+Num):", placeholder="Ex: 34999998888")
     if st.button("CONFIRMAR", type="primary", use_container_width=True):
-        if "@" not in email_contato or "." not in email_contato:
-            st.error("E-mail inválido.")
-            return
-        tel_limpo = formatar_telefone(telefone_contato)
-        if len(tel_limpo) < 12:
-            st.error("Telefone inválido! (Ex: 34991727088).")
-            return
-        if salvar_venda(usuario_cod, item_nome, custo, email_contato, tel_limpo):
+        if "@" not in email or "." not in email: st.error("E-mail inválido."); return
+        t_limpo = formatar_telefone(tel)
+        if len(t_limpo) < 12: st.error("Telefone inválido!"); return
+        if salvar_venda(usuario_cod, item_nome, custo, email, t_limpo):
             st.success("Sucesso!"); st.balloons(); time.sleep(2); st.rerun()
 
 # --- TELAS ---
@@ -256,13 +236,17 @@ def tela_login():
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, n, t, sld = validar_login(u, s)
-                if ok:
-                    st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld})
-                    st.rerun()
+                if ok: st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld}); st.rerun()
                 else: st.toast("Erro!", icon="❌")
 
 def tela_admin():
-    st.subheader("🛠️ Painel Admin")
+    # --- CABEÇALHO DO ADMIN COM BOTÃO DE REFRESH ---
+    c_titulo, c_refresh = st.columns([4, 1])
+    c_titulo.subheader("🛠️ Painel Admin")
+    if c_refresh.button("🔄 Atualizar Dados"):
+        st.cache_data.clear()
+        st.rerun()
+        
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Ferramentas"])
     
     with t1:
@@ -286,35 +270,49 @@ def tela_admin():
                 df_salvar = edit_v.drop(columns=["Enviar"])
                 conn.update(worksheet="vendas", data=df_salvar)
                 registrar_log("Admin: Edição Vendas", "Salvou alterações na planilha de vendas")
-                st.cache_data.clear()
-                st.success("Salvo!"); time.sleep(1); st.rerun()
+                st.cache_data.clear(); st.success("Salvo!"); time.sleep(1); st.rerun()
 
             if c_btn2.button("📤 Enviar Prêmios", type="primary"):
                 selecionados = edit_v[edit_v['Enviar'] == True]
-                if selecionados.empty:
-                    st.warning("Selecione alguém.")
+                if selecionados.empty: st.warning("Selecione alguém.")
                 else:
-                    enviados = 0
-                    barra = st.progress(0)
-                    total = len(selecionados)
+                    enviados = 0; barra = st.progress(0); total = len(selecionados)
                     for i, (index, row) in enumerate(selecionados.iterrows()):
                         barra.progress((i+1)/total)
                         tel = str(row['Telefone']).strip(); nome = str(row['NomeReal']).strip(); item = str(row['Item']); cod = str(row['CodigoVale'])
                         if not nome: nome = str(row['Usuario'])
-                        
                         if len(formatar_telefone(tel)) < 12 or not cod: continue
                         ok, msg = enviar_whatsapp_template(tel, [nome, item, cod], nome_template="premios_campanhas_envio")
                         if ok: enviados += 1
                     
                     if enviados > 0:
-                        registrar_log("Admin: Envio Prêmios", f"Enviou {enviados} mensagens de prêmios")
-                        df_limpo = edit_v.drop(columns=["Enviar"])
-                        conn.update(worksheet="vendas", data=df_limpo)
-                        st.cache_data.clear()
-                        st.success(f"{enviados} enviados!"); time.sleep(2); st.rerun()
+                        registrar_log("Admin: Envio Prêmios", f"Enviou {enviados} mensagens")
+                        conn.update(worksheet="vendas", data=edit_v.drop(columns=["Enviar"]))
+                        st.cache_data.clear(); st.success(f"{enviados} enviados!"); time.sleep(2); st.rerun()
 
     with t2:
-        st.info("Selecione os usuários para avisar sobre saldo.")
+        # --- ÁREA DE CADASTRO DE NOVO USUÁRIO ---
+        with st.expander("➕ Cadastrar Novo Usuário (Clique para abrir)"):
+            with st.form("form_novo_user"):
+                st.write("Preencha os dados do novo colaborador:")
+                c_new1, c_new2 = st.columns(2)
+                novo_user = c_new1.text_input("Usuário (Login)")
+                novo_pass = c_new2.text_input("Senha Inicial")
+                novo_nome = c_new1.text_input("Nome Completo")
+                novo_tel = c_new2.text_input("Telefone (com DDD)")
+                novo_saldo = c_new1.number_input("Saldo Inicial", min_value=0.0, step=100.0)
+                novo_tipo = c_new2.selectbox("Tipo de Acesso", ["comum", "admin"])
+                
+                if st.form_submit_button("Cadastrar Usuário"):
+                    if novo_user and novo_pass and novo_nome:
+                        ok, msg = cadastrar_novo_usuario(novo_user, novo_pass, novo_nome, novo_saldo, novo_tipo, novo_tel)
+                        if ok: st.success(msg); time.sleep(1); st.rerun()
+                        else: st.error(msg)
+                    else:
+                        st.warning("Preencha Login, Senha e Nome.")
+
+        st.divider()
+        st.markdown("### 💰 Gerenciar Saldos")
         df_u = carregar_dados("usuarios")
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
@@ -329,9 +327,8 @@ def tela_admin():
             c_u1, c_u2 = st.columns(2)
             if c_u1.button("💾 Salvar Saldos"): 
                 conn.update(worksheet="usuarios", data=edit_u.drop(columns=["Notificar"]))
-                registrar_log("Admin: Edição Usuários", "Salvou tabela de usuários/saldos")
-                st.cache_data.clear()
-                st.success("Salvo!"); st.rerun()
+                registrar_log("Admin: Saldos", "Salvou tabela de usuários")
+                st.cache_data.clear(); st.success("Salvo!"); st.rerun()
                 
             if c_u2.button("📲 Enviar Aviso de Saldo", type="primary"):
                 selecionados_u = edit_u[edit_u['Notificar'] == True]
@@ -345,20 +342,17 @@ def tela_admin():
                         if ok: enviados_u += 1
                     
                     if enviados_u > 0:
-                        registrar_log("Admin: Aviso Saldo", f"Notificou {enviados_u} usuários sobre saldo")
-                        edit_u_limpo = edit_u.drop(columns=["Notificar"])
-                        conn.update(worksheet="usuarios", data=edit_u_limpo)
-                        st.cache_data.clear()
-                        st.success("Concluído!"); time.sleep(2); st.rerun()
+                        registrar_log("Admin: Aviso Saldo", f"Notificou {enviados_u} usuários")
+                        conn.update(worksheet="usuarios", data=edit_u.drop(columns=["Notificar"]))
+                        st.cache_data.clear(); st.success("Concluído!"); time.sleep(2); st.rerun()
 
     with t3:
         df_p = carregar_dados("premios")
         edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p_log")
         if st.button("Salvar Prêmios"): 
             conn.update(worksheet="premios", data=edit_p)
-            registrar_log("Admin: Prêmios", "Atualizou catálogo de prêmios")
-            st.cache_data.clear()
-            st.rerun()
+            registrar_log("Admin: Prêmios", "Atualizou catálogo")
+            st.cache_data.clear(); st.rerun()
     
     with t4:
         st.markdown(f"### 🧪 Testes")
