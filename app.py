@@ -45,21 +45,13 @@ def converter_link_drive(url):
 
 def formatar_telefone(tel_bruto):
     texto = str(tel_bruto).strip()
-    if texto.endswith(".0"): texto = texto[:-2] # Remove .0 do excel
-    
+    if texto.endswith(".0"): texto = texto[:-2] 
     apenas_numeros = re.sub(r'\D', '', texto)
-    
-    # Se digitaram 34999998888 (11 digitos), vira 5534...
     if 10 <= len(apenas_numeros) <= 11:
         apenas_numeros = "55" + apenas_numeros
-        
     return apenas_numeros
 
 def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campanhas_envio"):
-    """
-    Envia WhatsApp usando Template.
-    Aceita o argumento 'nome_template' para alternar entre premio e saldo.
-    """
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
@@ -68,9 +60,7 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campan
         url = f"{base_url}/whatsapp/1/message/template"
         tel_final = formatar_telefone(telefone)
         
-        # Validação básica antes de tentar enviar
-        if len(tel_final) < 12:
-             return False, f"Número inválido: {tel_final}"
+        if len(tel_final) < 12: return False, f"Número inválido: {tel_final}"
 
         payload = {
             "messages": [
@@ -79,31 +69,21 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campan
                     "to": tel_final,
                     "content": {
                         "templateName": nome_template, 
-                        "templateData": {
-                            "body": {
-                                "placeholders": parametros 
-                            }
-                        },
+                        "templateData": { "body": { "placeholders": parametros } },
                         "language": "pt_BR"
                     }
                 }
             ]
         }
-        
         headers = {
             "Authorization": f"App {api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
-        
         response = requests.post(url, json=payload, headers=headers)
-        
-        if response.status_code not in [200, 201]:
-            return False, f"Erro API {response.status_code}: {response.text}"
-            
+        if response.status_code not in [200, 201]: return False, f"Erro API {response.status_code}: {response.text}"
         return True, f"Enviado para {tel_final}"
-    except Exception as e:
-        return False, f"Erro Conexão: {str(e)}"
+    except Exception as e: return False, f"Erro Conexão: {str(e)}"
 
 # --- SESSÃO ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
@@ -138,15 +118,47 @@ st.markdown(f"""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- CACHE E DADOS ---
+
+# Melhoria 2: Cache para performance (evita ler a planilha toda hora)
+@st.cache_data(ttl=10)
 def carregar_dados(aba):
     try: return conn.read(worksheet=aba, ttl=0)
     except: return pd.DataFrame()
+
+# Melhoria 1: Sistema de Logs
+def registrar_log(acao, detalhes):
+    try:
+        # Tenta ler a aba de logs
+        try:
+            df_logs = conn.read(worksheet="logs", ttl=0)
+        except:
+            # Se não existir, cria estrutura vazia na memória
+            df_logs = pd.DataFrame(columns=["Data", "Responsavel", "Acao", "Detalhes"])
+        
+        # Quem está fazendo a ação?
+        resp = st.session_state.get('usuario_nome', 'Sistema')
+        
+        novo_log = pd.DataFrame([{
+            "Data": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "Responsavel": resp,
+            "Acao": acao,
+            "Detalhes": detalhes
+        }])
+        
+        # Salva o log
+        conn.update(worksheet="logs", data=pd.concat([df_logs, novo_log], ignore_index=True))
+        
+    except Exception as e:
+        print(f"Erro ao salvar log: {e}")
 
 def limpar_dado(dado): 
     texto = str(dado).strip()
     return texto.replace('.0', '') if texto.endswith('.0') else texto
 
 def validar_login(user_input, pass_input):
+    # Precisamos limpar o cache para garantir que login pegue dados frescos se mudou senha
+    st.cache_data.clear()
     df = carregar_dados("usuarios")
     if df.empty: return False, None, None, 0
     u_in = limpar_dado(user_input).lower()
@@ -185,11 +197,18 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
             "Status": "Pendente", 
             "Email": email_contato,
             "NomeReal": nome_user,
-            "Telefone": telefone_resgate # Salva o telefone informado no resgate
+            "Telefone": telefone_resgate
         }])
         
         conn.update(worksheet="vendas", data=pd.concat([df_v, nova], ignore_index=True))
+        
+        # LOG DA VENDA
+        registrar_log("Resgate de Prêmio", f"Usuário: {nome_user} | Item: {item_nome} | Valor: {custo}")
+        
         st.session_state['saldo_atual'] -= custo
+        
+        # Limpa cache para atualizar visualização
+        st.cache_data.clear()
         return True
     except Exception as e:
         print(e)
@@ -205,33 +224,26 @@ def abrir_modal_senha(usuario_cod):
             df = carregar_dados("usuarios")
             df.loc[df['usuario'].astype(str).str.lower() == usuario_cod.lower(), 'senha'] = gerar_hash(n)
             conn.update(worksheet="usuarios", data=df)
+            registrar_log("Alteração de Senha", f"Usuário: {usuario_cod}")
+            st.cache_data.clear()
             st.success("Senha alterada!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
 
 @st.dialog("🎁 Confirmar Resgate")
 def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
     st.write(f"Resgatando: **{item_nome}** por **{custo} pts**.")
-    
-    # Inputs Obrigatórios
     email_contato = st.text_input("E-mail para envio:", placeholder="exemplo@email.com")
-    telefone_contato = st.text_input("Seu WhatsApp (DDD + Numero):", placeholder="Ex: 34999998888", help="Digite apenas números com DDD.")
+    telefone_contato = st.text_input("Seu WhatsApp (DDD + Numero):", placeholder="Ex: 34999998888")
     
     if st.button("CONFIRMAR", type="primary", use_container_width=True):
-        # 1. Validação do Email
         if "@" not in email_contato or "." not in email_contato:
             st.error("E-mail inválido.")
             return
-
-        # 2. Validação e Formatação do Telefone (A TRAVA DE SEGURANÇA)
         tel_limpo = formatar_telefone(telefone_contato)
-        
-        # Tem que ter pelo menos 12 dígitos (55 + 2 DDD + 8 ou 9 numero)
         if len(tel_limpo) < 12:
-            st.error("Telefone inválido! Digite o DDD + Número corretamente (Ex: 34991727088).")
+            st.error("Telefone inválido! (Ex: 34991727088).")
             return
-
-        # Se passou na trava, salva
         if salvar_venda(usuario_cod, item_nome, custo, email_contato, tel_limpo):
-            st.success("Sucesso! Compra registrada."); st.balloons(); time.sleep(2); st.rerun()
+            st.success("Sucesso!"); st.balloons(); time.sleep(2); st.rerun()
 
 # --- TELAS ---
 def tela_login():
@@ -253,7 +265,6 @@ def tela_admin():
     st.subheader("🛠️ Painel Admin")
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Ferramentas"])
     
-    # --- ABA 1: ENTREGAS DE PRÊMIOS ---
     with t1:
         df_v = carregar_dados("vendas")
         if not df_v.empty:
@@ -261,157 +272,101 @@ def tela_admin():
             for col in cols: 
                 if col not in df_v.columns: df_v[col] = False if col == "Enviar" else ""
             
-            # Tratamento de tipos
             df_v["Telefone"] = df_v["Telefone"].astype(str).replace(["nan", "None"], "").apply(limpar_dado)
             df_v["NomeReal"] = df_v["NomeReal"].astype(str).replace(["nan", "None"], "")
             df_v["CodigoVale"] = df_v["CodigoVale"].astype(str).replace(["nan", "None"], "")
 
             edit_v = st.data_editor(
-                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_v9",
+                df_v, use_container_width=True, hide_index=True, key="ed_vendas_final_log",
                 column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)}
             )
             
-            # CRIAÇÃO DAS COLUNAS PARA OS BOTÕES
             c_btn1, c_btn2 = st.columns(2)
-
-            # Botão 1: Salvar Alterações (Sem enviar)
             if c_btn1.button("💾 Salvar Alterações"):
-                # Remove a coluna temporária 'Enviar' antes de salvar
                 df_salvar = edit_v.drop(columns=["Enviar"])
                 conn.update(worksheet="vendas", data=df_salvar)
-                st.success("Alterações salvas com sucesso!")
-                time.sleep(1)
-                st.rerun()
+                registrar_log("Admin: Edição Vendas", "Salvou alterações na planilha de vendas")
+                st.cache_data.clear()
+                st.success("Salvo!"); time.sleep(1); st.rerun()
 
-            # Botão 2: Enviar WhatsApp
-            if c_btn2.button("📤 Enviar Prêmios Selecionados", type="primary"):
+            if c_btn2.button("📤 Enviar Prêmios", type="primary"):
                 selecionados = edit_v[edit_v['Enviar'] == True]
                 if selecionados.empty:
-                    st.warning("Selecione alguém na caixa 'Enviar' antes de clicar aqui.")
+                    st.warning("Selecione alguém.")
                 else:
                     enviados = 0
                     barra = st.progress(0)
                     total = len(selecionados)
-                    
                     for i, (index, row) in enumerate(selecionados.iterrows()):
                         barra.progress((i+1)/total)
-                        tel = str(row['Telefone']).strip()
-                        nome = str(row['NomeReal']).strip()
+                        tel = str(row['Telefone']).strip(); nome = str(row['NomeReal']).strip(); item = str(row['Item']); cod = str(row['CodigoVale'])
                         if not nome: nome = str(row['Usuario'])
-                        item = str(row['Item'])
-                        cod = str(row['CodigoVale'])
                         
-                        if len(formatar_telefone(tel)) < 12 or not cod:
-                            st.error(f"Erro nos dados de {nome}. Verifique telefone e código.")
-                            continue
-                            
-                        # USA O TEMPLATE DE PRÊMIOS
-                        ok, msg = enviar_whatsapp_template(
-                            tel, 
-                            [nome, item, cod], 
-                            nome_template="premios_campanhas_envio" 
-                        )
+                        if len(formatar_telefone(tel)) < 12 or not cod: continue
+                        ok, msg = enviar_whatsapp_template(tel, [nome, item, cod], nome_template="premios_campanhas_envio")
                         if ok: enviados += 1
-                        else: st.error(f"Erro {nome}: {msg}")
                     
                     if enviados > 0:
-                        st.success(f"{enviados} prêmios enviados!")
-                        # Remove a marcação e salva
+                        registrar_log("Admin: Envio Prêmios", f"Enviou {enviados} mensagens de prêmios")
                         df_limpo = edit_v.drop(columns=["Enviar"])
                         conn.update(worksheet="vendas", data=df_limpo)
-                        time.sleep(2); st.rerun()
+                        st.cache_data.clear()
+                        st.success(f"{enviados} enviados!"); time.sleep(2); st.rerun()
 
-    # --- ABA 2: USUÁRIOS & SALDOS ---
     with t2:
-        st.markdown("### 💰 Atualização de Saldos")
-        st.info("Selecione os usuários que tiveram o saldo atualizado para avisá-los no WhatsApp.")
-        
+        st.info("Selecione os usuários para avisar sobre saldo.")
         df_u = carregar_dados("usuarios")
-        
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
-            
-            # Garante tipos corretos
             df_u["telefone"] = df_u["telefone"].astype(str).replace(["nan", "None"], "").apply(limpar_dado)
-            df_u["saldo"] = df_u["saldo"].fillna(0).astype(float) # Garante que saldo é numero
+            df_u["saldo"] = df_u["saldo"].fillna(0).astype(float)
             
             edit_u = st.data_editor(
-                df_u, 
-                use_container_width=True, 
-                key="ed_u_notify",
-                column_config={
-                    "Notificar": st.column_config.CheckboxColumn("Avisar?", default=False),
-                    "saldo": st.column_config.NumberColumn("Saldo Atual", format="%.0f")
-                }
+                df_u, use_container_width=True, key="ed_u_log",
+                column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo", format="%.0f")}
             )
             
-            c_btn_u1, c_btn_u2 = st.columns(2)
-            
-            # Botão 1: Apenas Salvar alterações na planilha
-            if c_btn_u1.button("💾 Salvar Saldos"): 
+            c_u1, c_u2 = st.columns(2)
+            if c_u1.button("💾 Salvar Saldos"): 
                 conn.update(worksheet="usuarios", data=edit_u.drop(columns=["Notificar"]))
-                st.success("Dados de usuários salvos!")
-                st.rerun()
+                registrar_log("Admin: Edição Usuários", "Salvou tabela de usuários/saldos")
+                st.cache_data.clear()
+                st.success("Salvo!"); st.rerun()
                 
-            # Botão 2: Enviar WhatsApp de Saldo
-            if c_btn_u2.button("📲 Enviar Aviso de Saldo", type="primary"):
+            if c_u2.button("📲 Enviar Aviso de Saldo", type="primary"):
                 selecionados_u = edit_u[edit_u['Notificar'] == True]
-                
-                if selecionados_u.empty:
-                    st.warning("Ninguém selecionado para notificar.")
-                else:
-                    enviados_u = 0
-                    barra_u = st.progress(0)
-                    total_u = len(selecionados_u)
-                    
-                    st.write("--- Enviando Avisos de Saldo ---")
-                    
+                if not selecionados_u.empty:
+                    enviados_u = 0; barra_u = st.progress(0); total_u = len(selecionados_u)
                     for i, (index, row) in enumerate(selecionados_u.iterrows()):
                         barra_u.progress((i+1)/total_u)
-                        
-                        tel_u = str(row['telefone']).strip()
-                        nome_u = str(row['nome']).strip()
-                        saldo_u = f"{float(row['saldo']):,.0f}" # Formata: 1.000
-                        
-                        if len(formatar_telefone(tel_u)) < 12:
-                            st.error(f"Telefone inválido para {nome_u}")
-                            continue
-                            
-                        # USA O NOVO TEMPLATE DE SALDO
-                        ok, msg = enviar_whatsapp_template(
-                            tel_u, 
-                            [nome_u, saldo_u], 
-                            nome_template="aviso_saldo_atualizado" 
-                        )
-                        
-                        if ok: 
-                            st.write(f"✅ Aviso enviado para {nome_u}")
-                            enviados_u += 1
-                        else:
-                            st.error(f"❌ Erro {nome_u}: {msg}")
-                            
+                        tel = str(row['telefone']); nome = str(row['nome']); saldo = f"{float(row['saldo']):,.0f}"
+                        if len(formatar_telefone(tel)) < 12: continue
+                        ok, msg = enviar_whatsapp_template(tel, [nome, saldo], nome_template="aviso_saldo_atualizado")
+                        if ok: enviados_u += 1
+                    
                     if enviados_u > 0:
-                        st.success("Envios concluídos!")
+                        registrar_log("Admin: Aviso Saldo", f"Notificou {enviados_u} usuários sobre saldo")
                         edit_u_limpo = edit_u.drop(columns=["Notificar"])
                         conn.update(worksheet="usuarios", data=edit_u_limpo)
-                        time.sleep(3); st.rerun()
+                        st.cache_data.clear()
+                        st.success("Concluído!"); time.sleep(2); st.rerun()
 
     with t3:
         df_p = carregar_dados("premios")
-        edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p")
-        if st.button("Salvar Prêmios"): conn.update(worksheet="premios", data=edit_p); st.rerun()
+        edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p_log")
+        if st.button("Salvar Prêmios"): 
+            conn.update(worksheet="premios", data=edit_p)
+            registrar_log("Admin: Prêmios", "Atualizou catálogo de prêmios")
+            st.cache_data.clear()
+            st.rerun()
     
     with t4:
-        st.markdown(f"### 🧪 Teste de Envio")
+        st.markdown(f"### 🧪 Testes")
         c1, c2 = st.columns([2, 1])
         tel_teste = c1.text_input("Número (com DDD)", placeholder="11999999999")
         if c1.button("Testar Template de SALDO"):
             if tel_teste:
-                ok, resp = enviar_whatsapp_template(
-                    tel_teste, 
-                    ["Visitante", "1000"], 
-                    nome_template="aviso_saldo_atualizado"
-                )
+                ok, resp = enviar_whatsapp_template(tel_teste, ["Visitante", "1000"], nome_template="aviso_saldo_atualizado")
                 if ok: st.success(f"✅ {resp}")
                 else: st.error(f"❌ {resp}")
 
@@ -419,7 +374,7 @@ def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     c_info, c_acoes = st.columns([3, 1.1])
     with c_info:
-        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode realizar a troca dos seus pontos por prêmios incríveis. Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     with c_acoes:
         img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
         st.markdown(f'<center><img src="{img_b64}" style="max-height: 80px;"></center>', unsafe_allow_html=True)
@@ -448,7 +403,7 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
                                 confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo para entrega do pedido é de : **5 dias úteis** e o mesmo será enviado para o seu Whatsapp informado no momento do resgate!.")
+            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** via e-mail.")
             df_v = carregar_dados("vendas")
             if not df_v.empty:
                 meus = df_v[df_v['Usuario'].astype(str)==str(u_cod)]
