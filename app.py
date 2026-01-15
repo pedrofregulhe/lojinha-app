@@ -24,13 +24,15 @@ if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
 # --- CSS ---
 if not st.session_state.get('logado', False):
+    # Fundo animado apenas na tela de login
     bg_style = ".stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }"
 else:
+    # Fundo neutro dentro do app
     bg_style = ".stApp { background-color: #f4f8fb; }"
 
 st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700;900&display=swap');
     html, body, [class*="css"] {{ font-family: 'Roboto', sans-serif; }}
     header {{ visibility: hidden; }}
     .stDeployButton {{ display: none; }}
@@ -242,7 +244,7 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
         t_limpo = formatar_telefone(tel)
         if len(t_limpo) < 12: st.error("Telefone inválido! (Ex: 34991727088)."); return
         if salvar_venda(usuario_cod, item_nome, custo, email, t_limpo):
-            st.balloons() # Efeito visual de festa!
+            st.balloons()
             st.success("Sucesso! Compra registrada."); time.sleep(2); st.rerun()
 
 # --- TELAS ---
@@ -251,8 +253,9 @@ def tela_login():
     with c2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         with st.form("f_login"):
-            img_b64 = carregar_logo_base64(ARQUIVO_LOGO)
-            st.markdown(f'<center><img src="{img_b64}" width="220"></center><br>', unsafe_allow_html=True)
+            # --- ALTERAÇÃO AQUI: Removida a imagem e adicionado o texto estilizado ---
+            st.markdown('<h1 style="text-align: center; color: #003366; font-weight: 900; font-size: 2.5rem; margin-bottom: 30px;">Bem Vindo a<br>Lojinha Culli.</h1>', unsafe_allow_html=True)
+            # -------------------------------------------------------------------------
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, n, t, sld = validar_login(u, s)
@@ -263,11 +266,10 @@ def tela_admin():
     c_titulo, c_refresh = st.columns([4, 1])
     c_titulo.subheader("🛠️ Painel Admin")
     
-    # MELHORIA: Toast de Feedback para Atualização
     if c_refresh.button("🔄 Atualizar Dados"):
         st.cache_data.clear()
         st.toast("Dados sincronizados com sucesso!", icon="✅")
-        time.sleep(1) # Dá tempo de ler antes de piscar a tela
+        time.sleep(1)
         st.rerun()
         
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Ferramentas"])
@@ -292,7 +294,7 @@ def tela_admin():
                     s.commit()
                 registrar_log("Admin", "Editou vendas")
                 st.success("✅ Alterações salvas com sucesso!")
-                time.sleep(2) # Mais tempo para ler
+                time.sleep(2)
                 st.rerun()
 
             if c2.button("📤 Enviar Prêmios", type="primary"):
@@ -309,9 +311,9 @@ def tela_admin():
                         if ok: enviados += 1
                     if enviados > 0: 
                         registrar_log("Admin", f"Enviou {enviados} prêmios")
-                        st.balloons() # Festa!
+                        st.balloons()
                         st.markdown(f'<div class="big-success">🚀 {enviados} Prêmios Enviados com Sucesso!</div>', unsafe_allow_html=True)
-                        time.sleep(3) # Tempo bom para celebrar
+                        time.sleep(3)
                         st.rerun()
 
     # ABA 2: USUÁRIOS
