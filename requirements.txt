@@ -2,6 +2,7 @@ streamlit
 pandas
 gspread
 oauth2client
-st-gsheets-connection
 plotly
 bcrypt
+sqlalchemy
+psycopg2-binary
