@@ -258,7 +258,7 @@ def tela_login():
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 25px;">
                     <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; line-height: 1.1;">
-                        Bem Vindo a<br>Lojinha Culli
+                        Bem Vindo<br>Lojinha Culli
                     </h1>
                 </div>
             """, unsafe_allow_html=True)
