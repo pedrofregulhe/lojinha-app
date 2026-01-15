@@ -267,7 +267,7 @@ def tela_login():
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 30px;">
                     <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; margin-bottom: 10px;">
-                        LOJINHA CULLI
+                        LOJINHA CULLI 🎁
                     </h1>
                     <p style="color: #555555; font-size: 0.95rem; line-height: 1.4; font-weight: 400; margin: 0;">
                         Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
@@ -403,7 +403,7 @@ def tela_principal():
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2>
-                        <p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan.</p>
+                        <p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis, aproveite!</p>
                     </div>
                     <div style="text-align:right; color:white;">
                         <span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br>
