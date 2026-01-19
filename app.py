@@ -142,7 +142,6 @@ def distribuir_pontos_multiplos(lista_usuarios, quantidade):
             run_transaction("UPDATE usuarios SET saldo = saldo + :q, pontos_historico = COALESCE(pontos_historico, 0) + :q WHERE tipo != 'admin'", {"q": quantidade})
             msg = f"Adicionou {quantidade} pts para TODOS."
         else:
-            # Converte lista Python para tupla SQL
             with conn.session as s:
                 s.execute(
                     text("UPDATE usuarios SET saldo = saldo + :q, pontos_historico = COALESCE(pontos_historico, 0) + :q WHERE usuario IN :users"),
@@ -228,14 +227,12 @@ def tela_admin():
                 if env > 0: registrar_log("Admin", f"Enviou {env} prêmios"); st.balloons(); st.success(f"{env} enviados!"); time.sleep(3); st.rerun()
 
     with t2:
-        # FERRAMENTA DE DISTRIBUIÇÃO FLEXÍVEL
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=True):
             st.info("Selecione uma ou mais pessoas para dar pontos. Soma no Saldo e no Ranking.")
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
             df_users_list = run_query("SELECT usuario FROM usuarios WHERE tipo != 'admin' ORDER BY usuario")
             lista_users = df_users_list['usuario'].tolist() if not df_users_list.empty else []
             
-            # AGORA É MULTI-SELECT
             target_users = c_d1.multiselect("Selecione os Usuários", ["Todos"] + lista_users)
             qtd_pontos = c_d2.number_input("Pontos", step=50, value=0)
             
@@ -303,7 +300,10 @@ def tela_principal():
                 for i, row in df_p.iterrows():
                     with cols[i % 4]:
                         with st.container(border=True):
-                            img = str(row.get('imagem', '')); st.image(processar_link_imagem(img)) if len(img) > 10 else None
+                            img = str(row.get('imagem', ''))
+                            # CORREÇÃO AQUI: if normal em vez de one-liner
+                            if len(img) > 10:
+                                st.image(processar_link_imagem(img))
                             st.markdown(f"**{row['item']}**"); cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True): confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
