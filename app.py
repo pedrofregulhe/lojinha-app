@@ -139,7 +139,7 @@ def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone):
 def distribuir_pontos_multiplos(lista_usuarios, quantidade):
     try:
         if "Todos" in lista_usuarios:
-            run_transaction("UPDATE usuarios SET saldo = saldo + :q, pontos_historico = COALESCE(pontos_historico, 0) + :q WHERE tipo != 'admin'", {"q": quantidade})
+            run_transaction("UPDATE usuarios SET saldo = saldo + :q, pontos_historico = COALESCE(pontos_historico, 0) + :q WHERE tipo NOT IN ('admin', 'staff')", {"q": quantidade})
             msg = f"Adicionou {quantidade} pts para TODOS."
         else:
             with conn.session as s:
@@ -184,7 +184,7 @@ def tela_login():
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 30px;">
                     <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; margin-bottom: 10px;">
-                        LOJINHA CULLI
+                        Lojinha Culli's
                     </h1>
                     <p style="color: #555555; font-size: 0.95rem; line-height: 1.4; font-weight: 400; margin: 0;">
                         Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
@@ -227,10 +227,21 @@ def tela_admin():
                 if env > 0: registrar_log("Admin", f"Enviou {env} prêmios"); st.balloons(); st.success(f"{env} enviados!"); time.sleep(3); st.rerun()
 
     with t2:
+        with st.expander("➕ Cadastrar Novo Usuário"):
+            with st.form("form_novo"):
+                c_n1, c_n2 = st.columns(2)
+                u = c_n1.text_input("Usuário"); s = c_n2.text_input("Senha")
+                n = c_n1.text_input("Nome"); t = c_n2.text_input("Telefone")
+                bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff"]) # Adicionei STAFF
+                if st.form_submit_button("Cadastrar"):
+                    ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t)
+                    if ok: st.success(msg); time.sleep(1.5); st.rerun()
+                    else: st.error(msg)
+                    
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=True):
             st.info("Selecione uma ou mais pessoas para dar pontos. Soma no Saldo e no Ranking.")
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
-            df_users_list = run_query("SELECT usuario FROM usuarios WHERE tipo != 'admin' ORDER BY usuario")
+            df_users_list = run_query("SELECT usuario FROM usuarios WHERE tipo NOT IN ('admin', 'staff') ORDER BY usuario")
             lista_users = df_users_list['usuario'].tolist() if not df_users_list.empty else []
             
             target_users = c_d1.multiselect("Selecione os Usuários", ["Todos"] + lista_users)
@@ -244,7 +255,7 @@ def tela_admin():
 
         st.divider()
         st.write("### Gerenciar Usuários (Tabela Completa)")
-        st.caption("📝 Agora você pode editar o **Ranking** manualmente aqui se precisar corrigir algo.")
+        st.caption("📝 Edite o **Ranking** manualmente aqui se precisar.")
         
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
@@ -258,8 +269,8 @@ def tela_admin():
             if c_u1.button("💾 Salvar Tudo (Tabela)"):
                 with conn.session as sess:
                     for i, row in edit_u.iterrows():
-                        sess.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n WHERE id=:id"), 
-                                     {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "id": row['id']})
+                        sess.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
+                                     {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": row['id']})
                     sess.commit()
                 registrar_log("Admin", "Editou usuários na tabela"); st.success("Atualizado!"); time.sleep(1); st.rerun()
             if c_u2.button("📲 Enviar Aviso Saldo", type="primary"):
@@ -301,9 +312,7 @@ def tela_principal():
                     with cols[i % 4]:
                         with st.container(border=True):
                             img = str(row.get('imagem', ''))
-                            # CORREÇÃO AQUI: if normal em vez de one-liner
-                            if len(img) > 10:
-                                st.image(processar_link_imagem(img))
+                            if len(img) > 10: st.image(processar_link_imagem(img))
                             st.markdown(f"**{row['item']}**"); cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True): confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
@@ -313,10 +322,11 @@ def tela_principal():
         with t3:
             st.markdown("### 🏆 Top Colaboradores (Histórico)")
             st.caption("Este ranking considera todos os pontos já ganhos, independente se já foram gastos ou zerados.")
-            df_rank = run_query("SELECT nome, pontos_historico FROM usuarios WHERE tipo != 'admin' ORDER BY pontos_historico DESC LIMIT 10")
+            # AQUI ESTÁ A MUDANÇA: Buscando 'usuario' e filtrando 'staff'
+            df_rank = run_query("SELECT usuario, pontos_historico FROM usuarios WHERE tipo NOT IN ('admin', 'staff') ORDER BY pontos_historico DESC LIMIT 10")
             if not df_rank.empty:
                 df_rank['pontos_historico'] = df_rank['pontos_historico'].fillna(0).astype(int)
-                df_rank = df_rank.rename(columns={"nome": "Colaborador", "pontos_historico": "Pontos Acumulados"})
+                df_rank = df_rank.rename(columns={"usuario": "Usuário", "pontos_historico": "Pontos Acumulados"})
                 st.dataframe(df_rank, use_container_width=True, hide_index=True)
             else: st.info("Ranking ainda vazio.")
 
