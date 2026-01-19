@@ -135,7 +135,6 @@ def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone):
         return True, "Cadastrado com sucesso!"
     except Exception as e: return False, f"Erro: {str(e)}"
 
-# Função Atualizada para Múltiplos Usuários
 def distribuir_pontos_multiplos(lista_usuarios, quantidade):
     try:
         if "Todos" in lista_usuarios:
@@ -208,6 +207,15 @@ def tela_admin():
     with t1:
         df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
         if not df_v.empty:
+            # --- ÁREA DO FILTRO NOVO ---
+            lista_status = df_v['status'].dropna().unique().tolist()
+            # Deixe o default vazio para mostrar TODOS inicialmente
+            filtro_status = st.multiselect("🔍 Filtrar por Status:", options=lista_status, placeholder="Selecione para filtrar (Vazio = Todos)")
+            
+            if filtro_status:
+                df_v = df_v[df_v['status'].isin(filtro_status)]
+            # ---------------------------
+
             if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
             edit_v = st.data_editor(df_v, use_container_width=True, hide_index=True, key="ed_vendas", column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)})
             c1, c2 = st.columns(2)
@@ -232,7 +240,7 @@ def tela_admin():
                 c_n1, c_n2 = st.columns(2)
                 u = c_n1.text_input("Usuário"); s = c_n2.text_input("Senha")
                 n = c_n1.text_input("Nome"); t = c_n2.text_input("Telefone")
-                bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff"]) # Adicionei STAFF
+                bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff"])
                 if st.form_submit_button("Cadastrar"):
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t)
                     if ok: st.success(msg); time.sleep(1.5); st.rerun()
@@ -294,7 +302,7 @@ def tela_admin():
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     c_info, c_acoes = st.columns([3, 1])
-    with c_info: st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis, aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+    with c_info: st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     with c_acoes:
         cs, cl = st.columns([1, 1], gap="small")
         if cs.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
@@ -317,12 +325,11 @@ def tela_principal():
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True): confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
-            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** via e-mail.")
+            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
             st.dataframe(run_query("SELECT data, item, valor, status, email FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod}), use_container_width=True)
         with t3:
-            st.markdown("### 🏆 Top Users (Pontuação)")
+            st.markdown("### 🏆 Top Users (Histórico)")
             st.caption("Este ranking considera todos os pontos já ganhos, independente se já foram gastos ou zerados.")
-            # AQUI ESTÁ A MUDANÇA: Buscando 'usuario' e filtrando 'staff'
             df_rank = run_query("SELECT usuario, pontos_historico FROM usuarios WHERE tipo NOT IN ('admin', 'staff') ORDER BY pontos_historico DESC LIMIT 10")
             if not df_rank.empty:
                 df_rank['pontos_historico'] = df_rank['pontos_historico'].fillna(0).astype(int)
