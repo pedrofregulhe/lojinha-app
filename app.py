@@ -87,7 +87,7 @@ def enviar_sms(telefone, mensagem_texto):
         payload = {
             "messages": [
                 {
-                    "from": "LojinhaCulli",
+                    "from": "LojinhaCulli", # Remetente padrão
                     "destinations": [{"to": tel_final}],
                     "text": mensagem_texto
                 }
@@ -99,10 +99,13 @@ def enviar_sms(telefone, mensagem_texto):
             "Accept": "application/json"
         }
         response = requests.post(url, json=payload, headers=headers)
-        if response.status_code not in [200, 201]: return False, f"Erro SMS: {response.status_code}"
+        
+        # Log detalhado se der erro
+        if response.status_code not in [200, 201]: 
+            return False, f"Erro SMS {response.status_code}: {response.text}"
+            
         return True, "SMS Enviado"
-    except Exception as e: return False, f"Erro SMS: {str(e)}"
-# ------------------------------------
+    except Exception as e: return False, f"Erro SMS Exception: {str(e)}"
 
 def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
@@ -284,8 +287,9 @@ def tela_admin():
                                     env_zap += 1
                             if usar_sms:
                                 texto_sms = f"Ola {nome}, seu resgate de {row['item']} foi liberado! Cod: {row['codigo_vale']}."
-                                if enviar_sms(tel, texto_sms)[0]:
-                                    env_sms += 1
+                                ok, msg_erro = enviar_sms(tel, texto_sms)
+                                if ok: env_sms += 1
+                                else: st.error(f"Erro SMS para {nome}: {msg_erro}") # MOSTRA ERRO NA TELA
                                     
                     if env_zap > 0 or env_sms > 0: 
                         registrar_log("Admin", f"Enviou {env_zap} Zaps e {env_sms} SMS")
@@ -341,12 +345,10 @@ def tela_admin():
                     sess.commit()
                 registrar_log("Admin", "Editou usuários na tabela"); st.success("Atualizado!"); time.sleep(1); st.rerun()
             
-            # --- CORREÇÃO AQUI: ADICIONADO A LÓGICA DE SMS ---
             st.divider()
             st.markdown("##### 📲 Enviar Avisos de Saldo")
             c_av1, c_av2, c_av3 = st.columns([1, 1, 2])
             
-            # Usando keys únicas para evitar conflito com a aba 1
             aviso_zap = c_av1.checkbox("WhatsApp", value=True, key="check_bal_zap")
             aviso_sms = c_av2.checkbox("SMS", value=False, key="check_bal_sms")
             
@@ -361,16 +363,20 @@ def tela_admin():
                     for i, row in sel.iterrows():
                         tel = str(row['telefone']); nome = str(row['nome'])
                         
-                        # ENVIO WHATSAPP
+                        # WHATSAPP
                         if aviso_zap:
                             if enviar_whatsapp_template(tel, [nome, f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: 
                                 env_zap += 1
                         
-                        # ENVIO SMS (AGORA SIM!)
+                        # SMS (CORRIGIDO E SEM PREFIXO)
                         if aviso_sms:
                             msg_sms = f"{nome}, seu saldo foi atualizado! Saldo atual: {float(row['saldo']):,.0f} pts."
-                            if enviar_sms(tel, msg_sms)[0]: 
+                            # Captura erro para debug
+                            ok, msg_erro = enviar_sms(tel, msg_sms)
+                            if ok: 
                                 env_sms += 1
+                            else:
+                                st.error(f"Falha SMS para {nome}: {msg_erro}")
 
                     if env_zap > 0 or env_sms > 0: 
                         st.balloons()
