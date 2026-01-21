@@ -102,6 +102,7 @@ def enviar_sms(telefone, mensagem_texto):
         if response.status_code not in [200, 201]: return False, f"Erro SMS: {response.status_code}"
         return True, "SMS Enviado"
     except Exception as e: return False, f"Erro SMS: {str(e)}"
+# ------------------------------------
 
 def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
@@ -262,12 +263,10 @@ def tela_admin():
             st.divider()
             st.markdown("##### 📢 Disparo de Prêmios")
             
-            # --- SELETOR DE CANAIS DE ENVIO (PRÊMIOS) ---
             c_chan1, c_chan2 = st.columns(2)
             usar_zap = c_chan1.checkbox("Enviar por WhatsApp", value=True)
             usar_sms = c_chan2.checkbox("Enviar por SMS (Custo Extra)", value=False)
-            # ----------------------------------
-
+            
             if st.button("📤 Enviar Selecionados", type="primary"):
                 sel = edit_v[edit_v['Enviar'] == True]
                 env_zap = 0
@@ -280,12 +279,9 @@ def tela_admin():
                         tel = str(row['telefone']); nome = str(row['nome_real'] or row['usuario'])
                         
                         if len(formatar_telefone(tel)) >= 12 and row['codigo_vale']:
-                            # Envio WhatsApp
                             if usar_zap:
                                 if enviar_whatsapp_template(tel, [nome, str(row['item']), str(row['codigo_vale'])])[0]: 
                                     env_zap += 1
-                            
-                            # Envio SMS (Texto Livre - SEM PREFIXO)
                             if usar_sms:
                                 texto_sms = f"Ola {nome}, seu resgate de {row['item']} foi liberado! Cod: {row['codigo_vale']}."
                                 if enviar_sms(tel, texto_sms)[0]:
@@ -345,13 +341,14 @@ def tela_admin():
                     sess.commit()
                 registrar_log("Admin", "Editou usuários na tabela"); st.success("Atualizado!"); time.sleep(1); st.rerun()
             
-            # --- PAINEL ÚNICO DE ENVIO DE SALDOS (CORRIGIDO) ---
+            # --- CORREÇÃO AQUI: ADICIONADO A LÓGICA DE SMS ---
             st.divider()
             st.markdown("##### 📲 Enviar Avisos de Saldo")
             c_av1, c_av2, c_av3 = st.columns([1, 1, 2])
             
-            aviso_zap = c_av1.checkbox("WhatsApp", value=True, key="check_aviso_zap")
-            aviso_sms = c_av2.checkbox("SMS", value=False, key="check_aviso_sms")
+            # Usando keys únicas para evitar conflito com a aba 1
+            aviso_zap = c_av1.checkbox("WhatsApp", value=True, key="check_bal_zap")
+            aviso_sms = c_av2.checkbox("SMS", value=False, key="check_bal_sms")
             
             if c_av3.button("📤 Enviar Avisos Selecionados", type="primary"):
                 sel = edit_u[edit_u['Notificar'] == True]
@@ -364,14 +361,14 @@ def tela_admin():
                     for i, row in sel.iterrows():
                         tel = str(row['telefone']); nome = str(row['nome'])
                         
-                        # ENVIO DE WHATSAPP
+                        # ENVIO WHATSAPP
                         if aviso_zap:
                             if enviar_whatsapp_template(tel, [nome, f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: 
                                 env_zap += 1
                         
-                        # ENVIO DE SMS (AGORA ESTÁ AQUI!)
+                        # ENVIO SMS (AGORA SIM!)
                         if aviso_sms:
-                            msg_sms = f"Ola {nome}, seu saldo atualizou! Voce tem {float(row['saldo']):,.0f} pts."
+                            msg_sms = f"{nome}, seu saldo foi atualizado! Saldo atual: {float(row['saldo']):,.0f} pts."
                             if enviar_sms(tel, msg_sms)[0]: 
                                 env_sms += 1
 
