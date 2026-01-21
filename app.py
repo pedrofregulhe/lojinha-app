@@ -73,6 +73,37 @@ def formatar_telefone(tel_bruto):
     if 10 <= len(apenas_numeros) <= 11: apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
+# --- NOVA FUNÇÃO DE SMS (INFOBIP) ---
+def enviar_sms(telefone, mensagem_texto):
+    try:
+        base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
+        api_key = st.secrets["INFOBIP_API_KEY"]
+        
+        url = f"{base_url}/sms/2/text/advanced"
+        tel_final = formatar_telefone(telefone)
+        
+        if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}"
+
+        payload = {
+            "messages": [
+                {
+                    "from": "LojinhaCulli", # Remetente (algumas operadoras trocam por número genérico)
+                    "destinations": [{"to": tel_final}],
+                    "text": mensagem_texto
+                }
+            ]
+        }
+        headers = {
+            "Authorization": f"App {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code not in [200, 201]: return False, f"Erro SMS: {response.status_code}"
+        return True, "SMS Enviado"
+    except Exception as e: return False, f"Erro SMS: {str(e)}"
+# ------------------------------------
+
 def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -205,7 +236,6 @@ def tela_admin():
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
     
     with t1:
-        # AGORA PUXAMOS A COLUNA 'recebido_user' PARA O ADMIN VER
         df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
         if not df_v.empty:
             lista_status = df_v['status'].dropna().unique().tolist()
@@ -214,13 +244,8 @@ def tela_admin():
 
             if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
             
-            # MOSTRANDO O STATUS DE RECEBIMENTO DO USUÁRIO
-            # Deixamos desabilitado (disabled) para o admin não clicar sem querer, apenas visualizar
             edit_v = st.data_editor(
-                df_v, 
-                use_container_width=True, 
-                hide_index=True, 
-                key="ed_vendas", 
+                df_v, use_container_width=True, hide_index=True, key="ed_vendas", 
                 column_config={
                     "Enviar": st.column_config.CheckboxColumn("Enviar?", default=False),
                     "recebido_user": st.column_config.CheckboxColumn("Recebido pelo Usuário?", disabled=True) 
@@ -234,14 +259,44 @@ def tela_admin():
                         s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": row['id']})
                     s.commit()
                 registrar_log("Admin", "Editou vendas"); st.success("Salvo!"); time.sleep(1); st.rerun()
-            if c2.button("📤 Enviar Prêmios", type="primary"):
+            
+            st.divider()
+            st.markdown("##### 📢 Disparo de Prêmios")
+            
+            # --- SELETOR DE CANAIS DE ENVIO ---
+            c_chan1, c_chan2 = st.columns(2)
+            usar_zap = c_chan1.checkbox("Enviar por WhatsApp", value=True)
+            usar_sms = c_chan2.checkbox("Enviar por SMS (Custo Extra)", value=False)
+            # ----------------------------------
+
+            if st.button("📤 Enviar Selecionados", type="primary"):
                 sel = edit_v[edit_v['Enviar'] == True]
-                env = 0
-                for i, row in sel.iterrows():
-                    tel = str(row['telefone']); nome = str(row['nome_real'] or row['usuario'])
-                    if len(formatar_telefone(tel)) >= 12 and row['codigo_vale']:
-                        if enviar_whatsapp_template(tel, [nome, str(row['item']), str(row['codigo_vale'])])[0]: env += 1
-                if env > 0: registrar_log("Admin", f"Enviou {env} prêmios"); st.balloons(); st.success(f"{env} enviados!"); time.sleep(3); st.rerun()
+                env_zap = 0
+                env_sms = 0
+                
+                if sel.empty:
+                    st.warning("Ninguém selecionado na coluna 'Enviar'.")
+                else:
+                    for i, row in sel.iterrows():
+                        tel = str(row['telefone']); nome = str(row['nome_real'] or row['usuario'])
+                        
+                        if len(formatar_telefone(tel)) >= 12 and row['codigo_vale']:
+                            # Envio WhatsApp
+                            if usar_zap:
+                                if enviar_whatsapp_template(tel, [nome, str(row['item']), str(row['codigo_vale'])])[0]: 
+                                    env_zap += 1
+                            
+                            # Envio SMS (Texto Livre)
+                            if usar_sms:
+                                texto_sms = f"Lojinha Culli: Ola {nome}, seu resgate de {row['item']} foi liberado! Codigo: {row['codigo_vale']}."
+                                if enviar_sms(tel, texto_sms)[0]:
+                                    env_sms += 1
+                                    
+                    if env_zap > 0 or env_sms > 0: 
+                        registrar_log("Admin", f"Enviou {env_zap} Zaps e {env_sms} SMS")
+                        st.balloons()
+                        st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})")
+                        time.sleep(3); st.rerun()
 
     with t2:
         with st.expander("➕ Cadastrar Novo Usuário"):
@@ -272,7 +327,6 @@ def tela_admin():
 
         st.divider()
         st.write("### Gerenciar Usuários (Tabela Completa)")
-        st.caption("📝 Edite o **Ranking** manualmente aqui se precisar.")
         
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
@@ -290,11 +344,29 @@ def tela_admin():
                                      {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": row['id']})
                     sess.commit()
                 registrar_log("Admin", "Editou usuários na tabela"); st.success("Atualizado!"); time.sleep(1); st.rerun()
-            if c_u2.button("📲 Enviar Aviso Saldo", type="primary"):
-                sel = edit_u[edit_u['Notificar'] == True]; env = 0
+            
+            # --- SELETOR DE CANAIS DE AVISO DE SALDO ---
+            st.markdown("##### 📲 Enviar Avisos de Saldo")
+            c_av1, c_av2, c_av3 = st.columns([1, 1, 2])
+            aviso_zap = c_av1.checkbox("WhatsApp", value=True, key="av_zap")
+            aviso_sms = c_av2.checkbox("SMS", value=False, key="av_sms")
+            # ------------------------------------------
+
+            if c_av3.button("Enviar Avisos Selecionados", type="primary"):
+                sel = edit_u[edit_u['Notificar'] == True]
+                env_zap = 0
+                env_sms = 0
                 for i, row in sel.iterrows():
-                    if enviar_whatsapp_template(row['telefone'], [row['nome'], f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: env += 1
-                if env > 0: st.balloons(); st.success(f"{env} avisos enviados!"); time.sleep(2); st.rerun()
+                    tel = str(row['telefone']); nome = str(row['nome'])
+                    
+                    if aviso_zap:
+                        if enviar_whatsapp_template(tel, [nome, f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: env_zap += 1
+                    
+                    if aviso_sms:
+                        txt = f"Lojinha Culli: {nome}, seu saldo foi atualizado! Voce tem {float(row['saldo']):,.0f} pts disponiveis."
+                        if enviar_sms(tel, txt)[0]: env_sms += 1
+
+                if env_zap > 0 or env_sms > 0: st.balloons(); st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})"); time.sleep(2); st.rerun()
 
     with t3:
         df_p = run_query("SELECT * FROM premios ORDER BY id"); edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p")
@@ -335,14 +407,8 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True): confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
-            
-            # --- MUDANÇA NA TELA DO USUÁRIO ---
-            # Puxamos a nova coluna 'recebido_user'
             meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod})
-            
             if not meus_pedidos.empty:
-                # Usamos data_editor para permitir o checkbox
-                # Desabilitamos a edição de tudo, MENOS do 'recebido_user'
                 editor_pedidos = st.data_editor(
                     meus_pedidos,
                     use_container_width=True,
@@ -357,23 +423,16 @@ def tela_principal():
                         "codigo_vale": st.column_config.TextColumn("Código/Vale", disabled=True),
                         "recebido_user": st.column_config.CheckboxColumn("Já Recebeu?", help="Marque se você já recebeu seu prêmio")
                     },
-                    disabled=["id", "data", "item", "valor", "status", "codigo_vale"] # Só o checkbox fica editável
+                    disabled=["id", "data", "item", "valor", "status", "codigo_vale"]
                 )
-
                 if st.button("💾 Confirmar Recebimento"):
                     with conn.session as s:
-                        # Varremos as linhas para ver o que mudou
                         for i, row in editor_pedidos.iterrows():
-                            # Se o usuário marcou TRUE no checkbox, salvamos no banco
-                            if row['recebido_user']:
-                                s.execute(text("UPDATE vendas SET recebido_user = TRUE WHERE id = :id"), {"id": row['id']})
-                            else:
-                                # Se desmarcou (opcional, mas bom ter), salvamos FALSE
-                                s.execute(text("UPDATE vendas SET recebido_user = FALSE WHERE id = :id"), {"id": row['id']})
+                            if row['recebido_user']: s.execute(text("UPDATE vendas SET recebido_user = TRUE WHERE id = :id"), {"id": row['id']})
+                            else: s.execute(text("UPDATE vendas SET recebido_user = FALSE WHERE id = :id"), {"id": row['id']})
                         s.commit()
                     st.toast("Status de recebimento atualizado!", icon="✅"); time.sleep(1); st.rerun()
-            else:
-                st.write("Nenhum pedido encontrado.")
+            else: st.write("Nenhum pedido encontrado.")
 
         with t3:
             st.markdown("### 🏆 Top Users (Histórico)")
