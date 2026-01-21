@@ -238,13 +238,13 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- LAYOUT CORRIGIDO DA ABA 1 (IGUAL ABA 2) ---
+            # --- LAYOUT ABA 1 ---
             c_check_zap_1, c_check_sms_1, c_btn_save_1, c_btn_send_1 = st.columns([0.8, 0.8, 1.2, 1.5])
             
             with c_check_zap_1:
                 usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas")
             with c_check_sms_1:
-                usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas") # Sem texto extra
+                usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas")
             
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
@@ -295,8 +295,9 @@ def tela_admin():
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t)
                     if ok: st.success(msg); time.sleep(1.5); st.rerun()
                     else: st.error(msg)
-                    
-        with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=True):
+        
+        # --- ALTERADO AQUI PARA FECHADO (expanded=False) ---
+        with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=False):
             st.info("Selecione uma ou mais pessoas para dar pontos. Soma no Saldo e no Ranking.")
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
             df_users_list = run_query("SELECT usuario FROM usuarios WHERE tipo NOT IN ('admin', 'staff') ORDER BY usuario")
@@ -325,13 +326,13 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- LAYOUT CORRIGIDO DA ABA 2 (MANTENDO PADRÃO) ---
+            # --- LAYOUT ABA 2 ---
             c_check_zap_2, c_check_sms_2, c_btn_save_2, c_btn_send_2 = st.columns([0.8, 0.8, 1.2, 1.5])
 
             with c_check_zap_2:
                 aviso_zap = st.checkbox("WhatsApp", value=True, key="check_bal_zap")
             with c_check_sms_2:
-                aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms") # Sem texto extra
+                aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms")
             
             with c_btn_save_2:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_users"):
