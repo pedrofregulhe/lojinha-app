@@ -87,7 +87,7 @@ def enviar_sms(telefone, mensagem_texto):
         payload = {
             "messages": [
                 {
-                    "from": "LojinhaCulli", # Remetente (algumas operadoras trocam por número genérico)
+                    "from": "LojinhaCulli",
                     "destinations": [{"to": tel_final}],
                     "text": mensagem_texto
                 }
@@ -286,9 +286,9 @@ def tela_admin():
                                 if enviar_whatsapp_template(tel, [nome, str(row['item']), str(row['codigo_vale'])])[0]: 
                                     env_zap += 1
                             
-                            # Envio SMS (Texto Livre)
+                            # Envio SMS (Texto Livre - SEM PREFIXO)
                             if usar_sms:
-                                texto_sms = f"Lojinha Culli: Ola {nome}, seu resgate de {row['item']} foi liberado! Codigo: {row['codigo_vale']}."
+                                texto_sms = f"Ola {nome}, seu resgate de {row['item']} foi liberado! Cod: {row['codigo_vale']}."
                                 if enviar_sms(tel, texto_sms)[0]:
                                     env_sms += 1
                                     
@@ -336,7 +336,9 @@ def tela_admin():
                 "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"),
                 "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)")
             })
-            c_u1, c_u2 = st.columns(2)
+            
+            # --- AQUI ESTAVA O PROBLEMA: REMOVI O BOTÃO ANTIGO ---
+            c_u1, _ = st.columns(2) # Só mantive o botão de Salvar Tabela aqui
             if c_u1.button("💾 Salvar Tudo (Tabela)"):
                 with conn.session as sess:
                     for i, row in edit_u.iterrows():
@@ -345,28 +347,38 @@ def tela_admin():
                     sess.commit()
                 registrar_log("Admin", "Editou usuários na tabela"); st.success("Atualizado!"); time.sleep(1); st.rerun()
             
-            # --- SELETOR DE CANAIS DE AVISO DE SALDO ---
+            # --- PAINEL ÚNICO DE ENVIO DE SALDOS ---
+            st.divider()
             st.markdown("##### 📲 Enviar Avisos de Saldo")
             c_av1, c_av2, c_av3 = st.columns([1, 1, 2])
-            aviso_zap = c_av1.checkbox("WhatsApp", value=True, key="av_zap")
-            aviso_sms = c_av2.checkbox("SMS", value=False, key="av_sms")
-            # ------------------------------------------
-
-            if c_av3.button("Enviar Avisos Selecionados", type="primary"):
+            
+            # Checkboxes com keys únicas para não dar conflito
+            aviso_zap = c_av1.checkbox("WhatsApp", value=True, key="check_aviso_zap")
+            aviso_sms = c_av2.checkbox("SMS", value=False, key="check_aviso_sms")
+            
+            if c_av3.button("📤 Enviar Avisos Selecionados", type="primary"):
                 sel = edit_u[edit_u['Notificar'] == True]
                 env_zap = 0
                 env_sms = 0
-                for i, row in sel.iterrows():
-                    tel = str(row['telefone']); nome = str(row['nome'])
-                    
-                    if aviso_zap:
-                        if enviar_whatsapp_template(tel, [nome, f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: env_zap += 1
-                    
-                    if aviso_sms:
-                        txt = f"Lojinha Culli: {nome}, seu saldo foi atualizado! Voce tem {float(row['saldo']):,.0f} pts disponiveis."
-                        if enviar_sms(tel, txt)[0]: env_sms += 1
+                
+                if sel.empty:
+                    st.warning("Ninguém selecionado na coluna 'Avisar?'.")
+                else:
+                    for i, row in sel.iterrows():
+                        tel = str(row['telefone']); nome = str(row['nome'])
+                        
+                        if aviso_zap:
+                            if enviar_whatsapp_template(tel, [nome, f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: env_zap += 1
+                        
+                        if aviso_sms:
+                            # Texto curto sem prefixo
+                            txt = f"{nome}, saldo atualizado! Voce tem {float(row['saldo']):,.0f} pts."
+                            if enviar_sms(tel, txt)[0]: env_sms += 1
 
-                if env_zap > 0 or env_sms > 0: st.balloons(); st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})"); time.sleep(2); st.rerun()
+                    if env_zap > 0 or env_sms > 0: 
+                        st.balloons()
+                        st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})")
+                        time.sleep(2); st.rerun()
 
     with t3:
         df_p = run_query("SELECT * FROM premios ORDER BY id"); edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p")
