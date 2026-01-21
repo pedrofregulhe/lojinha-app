@@ -284,7 +284,7 @@ def tela_admin():
             if c_u2.button("📲 Enviar Aviso Saldo", type="primary"):
                 sel = edit_u[edit_u['Notificar'] == True]; env = 0
                 for i, row in sel.iterrows():
-                    if enviar_whatsapp_template(row['telefone'], [row['nome'], f"{float(row['saldo']):,.0f}"], "aviso_saldo_atualizado")[0]: env += 1
+                    if enviar_whatsapp_template(row['telefone'], [row['nome'], f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: env += 1
                 if env > 0: st.balloons(); st.success(f"{env} avisos enviados!"); time.sleep(2); st.rerun()
 
     with t3:
