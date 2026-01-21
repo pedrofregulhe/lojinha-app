@@ -79,7 +79,7 @@ def formatar_telefone(tel_bruto):
     
     return apenas_numeros
 
-# --- FUNÇÃO SMS CORRIGIDA ---
+# --- FUNÇÃO SMS CORRIGIDA (SEM SENDER ID) ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -95,7 +95,7 @@ def enviar_sms(telefone, mensagem_texto):
         payload = {
             "messages": [
                 {
-                    "from": "ServiceSMS", # Sender ID genérico
+                    # REMOVIDO O CAMPO "from" -> Usa o padrão da conta para evitar bloqueio
                     "destinations": [{"to": tel_final}],
                     "text": mensagem_texto
                 }
@@ -345,76 +345,67 @@ def tela_admin():
                 "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)")
             })
             
-            c_u1, _ = st.columns(2)
-            if c_u1.button("💾 Salvar Tudo (Tabela)"):
-                with conn.session as sess:
-                    for i, row in edit_u.iterrows():
-                        sess.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
-                                     {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": row['id']})
-                    sess.commit()
-                registrar_log("Admin", "Editou usuários na tabela"); st.success("Atualizado!"); time.sleep(1); st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
             
-            st.divider()
-            st.markdown("##### 📲 Enviar Avisos de Saldo")
-            c_av1, c_av2, c_av3 = st.columns([1, 1, 2])
-            
-            aviso_zap = c_av1.checkbox("WhatsApp", value=True, key="check_bal_zap")
-            aviso_sms = c_av2.checkbox("SMS", value=False, key="check_bal_sms")
-            
-            # --- CORREÇÃO APLICADA AQUI ---
-            if c_av3.button("📤 Enviar Avisos Selecionados", type="primary"):
-                sel = edit_u[edit_u['Notificar'] == True]
-                env_zap = 0
-                env_sms = 0
-                erros_lista = []
-                
-                if sel.empty:
-                    st.warning("Ninguém selecionado na coluna 'Avisar?'.")
-                else:
-                    bar_progresso = st.progress(0)
-                    total = len(sel)
-                    
-                    for i, (index, row) in enumerate(sel.iterrows()):
-                        tel = str(row['telefone'])
-                        nome = str(row['nome'])
-                        
-                        # Garante que o saldo é um número válido para a mensagem
-                        try:
-                            saldo_fmt = f"{float(row['saldo']):,.0f}"
-                        except:
-                            saldo_fmt = "0"
+            # --- LAYOUT ATUALIZADO (CHECKBOXES E BOTÕES ALINHADOS) ---
+            c_check_zap, c_check_sms, c_btn_save, c_btn_send = st.columns([0.8, 0.8, 1.2, 1.5])
 
-                        # WHATSAPP
-                        if aviso_zap:
-                            ok_zap, info_zap = enviar_whatsapp_template(tel, [nome, saldo_fmt], "atualizar_saldo_pedidos")
-                            if ok_zap: env_zap += 1
+            with c_check_zap:
+                aviso_zap = st.checkbox("WhatsApp", value=True, key="check_bal_zap")
+            with c_check_sms:
+                aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms")
+            
+            with c_btn_save:
+                # Botão SALVAR
+                if st.button("💾 Atualizar Banco", use_container_width=True):
+                    with conn.session as sess:
+                        for i, row in edit_u.iterrows():
+                            sess.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
+                                         {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": row['id']})
+                        sess.commit()
+                    registrar_log("Admin", "Editou usuários na tabela"); st.toast("Dados atualizados!", icon="✅"); time.sleep(1); st.rerun()
+
+            with c_btn_send:
+                # Botão ENVIAR
+                if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
+                    sel = edit_u[edit_u['Notificar'] == True]
+                    env_zap = 0
+                    env_sms = 0
+                    erros_lista = []
+                    
+                    if sel.empty:
+                        st.warning("Ninguém selecionado na coluna 'Avisar?'.")
+                    else:
+                        bar_progresso = st.progress(0)
+                        total = len(sel)
                         
-                        # SMS
-                        if aviso_sms:
-                            # Remove acentos e caracteres especiais para garantir entrega do SMS
-                            msg_sms = f"Ola {nome}, seu saldo foi atualizado! Saldo atual: {saldo_fmt} pts. Acesse a loja para conferir."
+                        for i, (index, row) in enumerate(sel.iterrows()):
+                            tel = str(row['telefone'])
+                            nome = str(row['nome'])
+                            try: saldo_fmt = f"{float(row['saldo']):,.0f}"
+                            except: saldo_fmt = "0"
+
+                            if aviso_zap:
+                                ok_zap, info_zap = enviar_whatsapp_template(tel, [nome, saldo_fmt], "atualizar_saldo_pedidos")
+                                if ok_zap: env_zap += 1
                             
-                            ok_sms, info_sms = enviar_sms(tel, msg_sms)
-                            if ok_sms: 
-                                env_sms += 1
-                            else:
-                                erros_lista.append(f"{nome}: {info_sms}")
+                            if aviso_sms:
+                                msg_sms = f"Ola {nome}, seu saldo foi atualizado! Saldo atual: {saldo_fmt} pts. Acesse a loja para conferir."
+                                ok_sms, info_sms = enviar_sms(tel, msg_sms)
+                                if ok_sms: env_sms += 1
+                                else: erros_lista.append(f"{nome}: {info_sms}")
 
-                        bar_progresso.progress((i + 1) / total)
+                            bar_progresso.progress((i + 1) / total)
+                        bar_progresso.empty()
 
-                    bar_progresso.empty()
-
-                    if env_zap > 0 or env_sms > 0: 
-                        st.balloons()
-                        st.success(f"Processo finalizado! (WhatsApp: {env_zap} | SMS: {env_sms})")
-                    
-                    if erros_lista:
-                        with st.expander("⚠️ Relatório de Erros (SMS)", expanded=True):
-                            for err in erros_lista:
-                                st.error(err)
-                                
-                    time.sleep(4)
-                    st.rerun()
+                        if env_zap > 0 or env_sms > 0: 
+                            st.balloons()
+                            st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})")
+                        
+                        if erros_lista:
+                            with st.expander("⚠️ Erros no SMS", expanded=True):
+                                for err in erros_lista: st.error(err)
+                        time.sleep(4); st.rerun()
 
     with t3:
         df_p = run_query("SELECT * FROM premios ORDER BY id"); edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p")
