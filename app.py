@@ -67,50 +67,24 @@ def processar_link_imagem(url):
     return url
 
 def formatar_telefone(tel_bruto):
-    # Apenas limpa caracteres não numéricos. 
-    # Como você disse que já vem 55+DDD, ele mantém o número intacto se já estiver certo.
     texto = str(tel_bruto).strip()
     if texto.endswith(".0"): texto = texto[:-2]
     apenas_numeros = re.sub(r'\D', '', texto)
-    
-    # Se por acaso faltar o 55 (tiver só 10 ou 11 digitos), ele adiciona por segurança.
     if 10 <= len(apenas_numeros) <= 11: 
         apenas_numeros = "55" + apenas_numeros
-    
     return apenas_numeros
 
-# --- FUNÇÃO SMS ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
-        
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
-        
-        # Validação simples
-        if len(tel_final) < 12: 
-            return False, f"Num Inválido: {tel_final}"
-
-        payload = {
-            "messages": [
-                {
-                    # Sem "from" definido = usa o padrão da conta
-                    "destinations": [{"to": tel_final}],
-                    "text": mensagem_texto
-                }
-            ]
-        }
-        headers = {
-            "Authorization": f"App {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
+        if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}"
+        payload = { "messages": [ { "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
+        headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
-        
-        if response.status_code not in [200, 201]: 
-            return False, f"Erro API {response.status_code}: {response.text}"
-            
+        if response.status_code not in [200, 201]: return False, f"Erro API {response.status_code}: {response.text}"
         return True, tel_final
     except Exception as e: return False, str(e)
 
@@ -262,49 +236,53 @@ def tela_admin():
                 }
             )
             
-            c1, c2 = st.columns(2)
-            if c1.button("💾 Salvar Alterações"):
-                with conn.session as s:
-                    for i, row in edit_v.iterrows():
-                        s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": row['id']})
-                    s.commit()
-                registrar_log("Admin", "Editou vendas"); st.success("Salvo!"); time.sleep(1); st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
             
-            st.divider()
-            st.markdown("##### 📢 Disparo de Prêmios")
+            # --- LAYOUT CORRIGIDO DA ABA 1 (IGUAL ABA 2) ---
+            c_check_zap_1, c_check_sms_1, c_btn_save_1, c_btn_send_1 = st.columns([0.8, 0.8, 1.2, 1.5])
             
-            c_chan1, c_chan2 = st.columns(2)
-            usar_zap = c_chan1.checkbox("Enviar por WhatsApp", value=True)
-            usar_sms = c_chan2.checkbox("Enviar por SMS (Custo Extra)", value=False)
+            with c_check_zap_1:
+                usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas")
+            with c_check_sms_1:
+                usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas") # Sem texto extra
             
-            if st.button("📤 Enviar Selecionados", type="primary"):
-                sel = edit_v[edit_v['Enviar'] == True]
-                env_zap = 0
-                env_sms = 0
-                
-                if sel.empty:
-                    st.warning("Ninguém selecionado na coluna 'Enviar'.")
-                else:
-                    for i, row in sel.iterrows():
-                        tel = str(row['telefone']); nome = str(row['nome_real'] or row['usuario'])
-                        
-                        if len(formatar_telefone(tel)) >= 12 and row['codigo_vale']:
-                            if usar_zap:
-                                if enviar_whatsapp_template(tel, [nome, str(row['item']), str(row['codigo_vale'])])[0]: 
-                                    env_zap += 1
-                            if usar_sms:
-                                texto_sms = f"Ola {nome}, seu resgate de {row['item']} foi liberado! Cod: {row['codigo_vale']}."
-                                ok, info = enviar_sms(tel, texto_sms)
-                                if ok: 
-                                    env_sms += 1
-                                else:
-                                    st.error(f"Erro SMS para {nome}: {info}")
-                                    
-                    if env_zap > 0 or env_sms > 0: 
-                        registrar_log("Admin", f"Enviou {env_zap} Zaps e {env_sms} SMS")
-                        st.balloons()
-                        st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})")
-                        time.sleep(3); st.rerun()
+            with c_btn_save_1:
+                if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
+                    with conn.session as s:
+                        for i, row in edit_v.iterrows():
+                            s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": row['id']})
+                        s.commit()
+                    registrar_log("Admin", "Editou vendas"); st.success("Salvo!"); time.sleep(1); st.rerun()
+
+            with c_btn_send_1:
+                if st.button("📤 Enviar Selecionados", type="primary", use_container_width=True):
+                    sel = edit_v[edit_v['Enviar'] == True]
+                    env_zap = 0
+                    env_sms = 0
+                    
+                    if sel.empty:
+                        st.warning("Ninguém selecionado.")
+                    else:
+                        for i, row in sel.iterrows():
+                            tel = str(row['telefone']); nome = str(row['nome_real'] or row['usuario'])
+                            
+                            if len(formatar_telefone(tel)) >= 12 and row['codigo_vale']:
+                                if usar_zap:
+                                    if enviar_whatsapp_template(tel, [nome, str(row['item']), str(row['codigo_vale'])])[0]: 
+                                        env_zap += 1
+                                if usar_sms:
+                                    texto_sms = f"Ola {nome}, seu resgate de {row['item']} foi liberado! Cod: {row['codigo_vale']}."
+                                    ok, info = enviar_sms(tel, texto_sms)
+                                    if ok: 
+                                        env_sms += 1
+                                    else:
+                                        st.error(f"Erro SMS para {nome}: {info}")
+                                        
+                        if env_zap > 0 or env_sms > 0: 
+                            registrar_log("Admin", f"Enviou {env_zap} Zaps e {env_sms} SMS")
+                            st.balloons()
+                            st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})")
+                            time.sleep(3); st.rerun()
 
     with t2:
         with st.expander("➕ Cadastrar Novo Usuário"):
@@ -336,7 +314,6 @@ def tela_admin():
         st.divider()
         st.write("### Gerenciar Usuários (Tabela Completa)")
         
-        # --- CARREGAR DADOS DIRETAMENTE DA TABELA 'USUARIOS' ---
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
@@ -348,15 +325,16 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            c_check_zap, c_check_sms, c_btn_save, c_btn_send = st.columns([0.8, 0.8, 1.2, 1.5])
+            # --- LAYOUT CORRIGIDO DA ABA 2 (MANTENDO PADRÃO) ---
+            c_check_zap_2, c_check_sms_2, c_btn_save_2, c_btn_send_2 = st.columns([0.8, 0.8, 1.2, 1.5])
 
-            with c_check_zap:
+            with c_check_zap_2:
                 aviso_zap = st.checkbox("WhatsApp", value=True, key="check_bal_zap")
-            with c_check_sms:
-                aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms")
+            with c_check_sms_2:
+                aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms") # Sem texto extra
             
-            with c_btn_save:
-                if st.button("💾 Atualizar Banco", use_container_width=True):
+            with c_btn_save_2:
+                if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_users"):
                     with conn.session as sess:
                         for i, row in edit_u.iterrows():
                             sess.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
@@ -364,7 +342,7 @@ def tela_admin():
                         sess.commit()
                     registrar_log("Admin", "Editou usuários na tabela"); st.toast("Dados atualizados!", icon="✅"); time.sleep(1); st.rerun()
 
-            with c_btn_send:
+            with c_btn_send_2:
                 if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
                     sel = edit_u[edit_u['Notificar'] == True]
                     env_zap = 0
@@ -372,23 +350,17 @@ def tela_admin():
                     erros_lista = []
                     
                     if sel.empty:
-                        st.warning("Ninguém selecionado na coluna 'Avisar?'.")
+                        st.warning("Ninguém selecionado.")
                     else:
                         bar_progresso = st.progress(0)
                         total = len(sel)
                         
                         for i, (index, row) in enumerate(sel.iterrows()):
-                            # --- AQUI ESTÁ A CORREÇÃO SOLICITADA ---
-                            # Lendo diretamente das colunas da tabela de USUARIOS
-                            tel = str(row['telefone']) # Coluna 'telefone'
-                            nome = str(row['nome'])    # Coluna 'nome'
+                            tel = str(row['telefone'])
+                            nome = str(row['nome'])
+                            try: saldo_fmt = f"{float(row['saldo']):,.0f}" 
+                            except: saldo_fmt = "0"
                             
-                            try: 
-                                saldo_fmt = f"{float(row['saldo']):,.0f}" # Coluna 'saldo'
-                            except: 
-                                saldo_fmt = "0"
-                            
-                            # Validação
                             if len(formatar_telefone(tel)) >= 12:
                                 if aviso_zap:
                                     ok_zap, info_zap = enviar_whatsapp_template(tel, [nome, saldo_fmt], "atualizar_saldo_pedidos")
