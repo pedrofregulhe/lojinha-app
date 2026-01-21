@@ -67,19 +67,19 @@ def processar_link_imagem(url):
     return url
 
 def formatar_telefone(tel_bruto):
-    # Remove espaços, parênteses, traços
+    # Apenas limpa caracteres não numéricos. 
+    # Como você disse que já vem 55+DDD, ele mantém o número intacto se já estiver certo.
     texto = str(tel_bruto).strip()
     if texto.endswith(".0"): texto = texto[:-2]
     apenas_numeros = re.sub(r'\D', '', texto)
     
-    # Se tiver entre 10 e 11 dígitos (Ex: 11999998888), adiciona 55
+    # Se por acaso faltar o 55 (tiver só 10 ou 11 digitos), ele adiciona por segurança.
     if 10 <= len(apenas_numeros) <= 11: 
         apenas_numeros = "55" + apenas_numeros
-    # Se já tiver 12 ou 13 (Ex: 5511999998888), mantém
     
     return apenas_numeros
 
-# --- FUNÇÃO SMS PADRÃO (Igual para ambas as abas) ---
+# --- FUNÇÃO SMS ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -95,7 +95,7 @@ def enviar_sms(telefone, mensagem_texto):
         payload = {
             "messages": [
                 {
-                    # Sem "from" para garantir entrega com rota padrão
+                    # Sem "from" definido = usa o padrão da conta
                     "destinations": [{"to": tel_final}],
                     "text": mensagem_texto
                 }
@@ -336,6 +336,7 @@ def tela_admin():
         st.divider()
         st.write("### Gerenciar Usuários (Tabela Completa)")
         
+        # --- CARREGAR DADOS DIRETAMENTE DA TABELA 'USUARIOS' ---
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
@@ -377,12 +378,17 @@ def tela_admin():
                         total = len(sel)
                         
                         for i, (index, row) in enumerate(sel.iterrows()):
-                            tel = str(row['telefone'])
-                            nome = str(row['nome'])
-                            try: saldo_fmt = f"{float(row['saldo']):,.0f}"
-                            except: saldo_fmt = "0"
+                            # --- AQUI ESTÁ A CORREÇÃO SOLICITADA ---
+                            # Lendo diretamente das colunas da tabela de USUARIOS
+                            tel = str(row['telefone']) # Coluna 'telefone'
+                            nome = str(row['nome'])    # Coluna 'nome'
                             
-                            # Validação e Envio - Lógica IDÊNTICA à aba de Vendas
+                            try: 
+                                saldo_fmt = f"{float(row['saldo']):,.0f}" # Coluna 'saldo'
+                            except: 
+                                saldo_fmt = "0"
+                            
+                            # Validação
                             if len(formatar_telefone(tel)) >= 12:
                                 if aviso_zap:
                                     ok_zap, info_zap = enviar_whatsapp_template(tel, [nome, saldo_fmt], "atualizar_saldo_pedidos")
@@ -394,7 +400,7 @@ def tela_admin():
                                     if ok_sms: env_sms += 1
                                     else: erros_lista.append(f"{nome}: {info_sms}")
                             else:
-                                erros_lista.append(f"{nome}: Telefone inválido/curto")
+                                erros_lista.append(f"{nome}: Tel inválido ({tel})")
 
                             bar_progresso.progress((i + 1) / total)
                         bar_progresso.empty()
