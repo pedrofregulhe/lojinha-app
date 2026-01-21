@@ -79,7 +79,7 @@ def formatar_telefone(tel_bruto):
     
     return apenas_numeros
 
-# --- FUNÇÃO SMS CORRIGIDA (SEM SENDER ID) ---
+# --- FUNÇÃO SMS PADRÃO (Igual para ambas as abas) ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -88,14 +88,14 @@ def enviar_sms(telefone, mensagem_texto):
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
         
-        # Validação extra
+        # Validação simples
         if len(tel_final) < 12: 
-            return False, f"Num Inválido: {tel_final} (Verifique DDD)"
+            return False, f"Num Inválido: {tel_final}"
 
         payload = {
             "messages": [
                 {
-                    # REMOVIDO O CAMPO "from" -> Usa o padrão da conta para evitar bloqueio
+                    # Sem "from" para garantir entrega com rota padrão
                     "destinations": [{"to": tel_final}],
                     "text": mensagem_texto
                 }
@@ -347,7 +347,6 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- LAYOUT ATUALIZADO (CHECKBOXES E BOTÕES ALINHADOS) ---
             c_check_zap, c_check_sms, c_btn_save, c_btn_send = st.columns([0.8, 0.8, 1.2, 1.5])
 
             with c_check_zap:
@@ -356,7 +355,6 @@ def tela_admin():
                 aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms")
             
             with c_btn_save:
-                # Botão SALVAR
                 if st.button("💾 Atualizar Banco", use_container_width=True):
                     with conn.session as sess:
                         for i, row in edit_u.iterrows():
@@ -366,7 +364,6 @@ def tela_admin():
                     registrar_log("Admin", "Editou usuários na tabela"); st.toast("Dados atualizados!", icon="✅"); time.sleep(1); st.rerun()
 
             with c_btn_send:
-                # Botão ENVIAR
                 if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
                     sel = edit_u[edit_u['Notificar'] == True]
                     env_zap = 0
@@ -384,16 +381,20 @@ def tela_admin():
                             nome = str(row['nome'])
                             try: saldo_fmt = f"{float(row['saldo']):,.0f}"
                             except: saldo_fmt = "0"
-
-                            if aviso_zap:
-                                ok_zap, info_zap = enviar_whatsapp_template(tel, [nome, saldo_fmt], "atualizar_saldo_pedidos")
-                                if ok_zap: env_zap += 1
                             
-                            if aviso_sms:
-                                msg_sms = f"Ola {nome}, seu saldo foi atualizado! Saldo atual: {saldo_fmt} pts. Acesse a loja para conferir."
-                                ok_sms, info_sms = enviar_sms(tel, msg_sms)
-                                if ok_sms: env_sms += 1
-                                else: erros_lista.append(f"{nome}: {info_sms}")
+                            # Validação e Envio - Lógica IDÊNTICA à aba de Vendas
+                            if len(formatar_telefone(tel)) >= 12:
+                                if aviso_zap:
+                                    ok_zap, info_zap = enviar_whatsapp_template(tel, [nome, saldo_fmt], "atualizar_saldo_pedidos")
+                                    if ok_zap: env_zap += 1
+                                
+                                if aviso_sms:
+                                    msg_sms = f"Ola {nome}, seu saldo foi atualizado! Saldo atual: {saldo_fmt} pts. Acesse a loja para conferir."
+                                    ok_sms, info_sms = enviar_sms(tel, msg_sms)
+                                    if ok_sms: env_sms += 1
+                                    else: erros_lista.append(f"{nome}: {info_sms}")
+                            else:
+                                erros_lista.append(f"{nome}: Telefone inválido/curto")
 
                             bar_progresso.progress((i + 1) / total)
                         bar_progresso.empty()
@@ -403,7 +404,7 @@ def tela_admin():
                             st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})")
                         
                         if erros_lista:
-                            with st.expander("⚠️ Erros no SMS", expanded=True):
+                            with st.expander("⚠️ Relatório de Problemas", expanded=True):
                                 for err in erros_lista: st.error(err)
                         time.sleep(4); st.rerun()
 
