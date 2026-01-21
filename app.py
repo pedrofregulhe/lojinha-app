@@ -73,7 +73,7 @@ def formatar_telefone(tel_bruto):
     if 10 <= len(apenas_numeros) <= 11: apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
-def enviar_whatsapp_template(telefone, parametros, nome_template="premios_campanhas_envio"):
+def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
