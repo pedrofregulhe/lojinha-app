@@ -183,7 +183,7 @@ def tela_login():
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 30px;">
                     <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; margin-bottom: 10px;">
-                        Lojinha Culli's
+                        LOJINHA CULLI
                     </h1>
                     <p style="color: #555555; font-size: 0.95rem; line-height: 1.4; font-weight: 400; margin: 0;">
                         Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
@@ -205,19 +205,28 @@ def tela_admin():
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
     
     with t1:
+        # AGORA PUXAMOS A COLUNA 'recebido_user' PARA O ADMIN VER
         df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
         if not df_v.empty:
-            # --- ÁREA DO FILTRO NOVO ---
             lista_status = df_v['status'].dropna().unique().tolist()
-            # Deixe o default vazio para mostrar TODOS inicialmente
             filtro_status = st.multiselect("🔍 Filtrar por Status:", options=lista_status, placeholder="Selecione para filtrar (Vazio = Todos)")
-            
-            if filtro_status:
-                df_v = df_v[df_v['status'].isin(filtro_status)]
-            # ---------------------------
+            if filtro_status: df_v = df_v[df_v['status'].isin(filtro_status)]
 
             if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
-            edit_v = st.data_editor(df_v, use_container_width=True, hide_index=True, key="ed_vendas", column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False)})
+            
+            # MOSTRANDO O STATUS DE RECEBIMENTO DO USUÁRIO
+            # Deixamos desabilitado (disabled) para o admin não clicar sem querer, apenas visualizar
+            edit_v = st.data_editor(
+                df_v, 
+                use_container_width=True, 
+                hide_index=True, 
+                key="ed_vendas", 
+                column_config={
+                    "Enviar": st.column_config.CheckboxColumn("Enviar?", default=False),
+                    "recebido_user": st.column_config.CheckboxColumn("Recebido pelo Usuário?", disabled=True) 
+                }
+            )
+            
             c1, c2 = st.columns(2)
             if c1.button("💾 Salvar Alterações"):
                 with conn.session as s:
@@ -326,7 +335,46 @@ def tela_principal():
                             if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True): confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
-            st.dataframe(run_query("SELECT data, item, valor, status, email FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod}), use_container_width=True)
+            
+            # --- MUDANÇA NA TELA DO USUÁRIO ---
+            # Puxamos a nova coluna 'recebido_user'
+            meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod})
+            
+            if not meus_pedidos.empty:
+                # Usamos data_editor para permitir o checkbox
+                # Desabilitamos a edição de tudo, MENOS do 'recebido_user'
+                editor_pedidos = st.data_editor(
+                    meus_pedidos,
+                    use_container_width=True,
+                    hide_index=True,
+                    key="editor_meus_pedidos",
+                    column_config={
+                        "id": st.column_config.TextColumn("ID", disabled=True),
+                        "data": st.column_config.DatetimeColumn("Data", disabled=True, format="DD/MM/YYYY"),
+                        "item": st.column_config.TextColumn("Item", disabled=True),
+                        "valor": st.column_config.NumberColumn("Valor", disabled=True),
+                        "status": st.column_config.TextColumn("Status", disabled=True),
+                        "codigo_vale": st.column_config.TextColumn("Código/Vale", disabled=True),
+                        "recebido_user": st.column_config.CheckboxColumn("Já Recebeu?", help="Marque se você já recebeu seu prêmio")
+                    },
+                    disabled=["id", "data", "item", "valor", "status", "codigo_vale"] # Só o checkbox fica editável
+                )
+
+                if st.button("💾 Confirmar Recebimento"):
+                    with conn.session as s:
+                        # Varremos as linhas para ver o que mudou
+                        for i, row in editor_pedidos.iterrows():
+                            # Se o usuário marcou TRUE no checkbox, salvamos no banco
+                            if row['recebido_user']:
+                                s.execute(text("UPDATE vendas SET recebido_user = TRUE WHERE id = :id"), {"id": row['id']})
+                            else:
+                                # Se desmarcou (opcional, mas bom ter), salvamos FALSE
+                                s.execute(text("UPDATE vendas SET recebido_user = FALSE WHERE id = :id"), {"id": row['id']})
+                        s.commit()
+                    st.toast("Status de recebimento atualizado!", icon="✅"); time.sleep(1); st.rerun()
+            else:
+                st.write("Nenhum pedido encontrado.")
+
         with t3:
             st.markdown("### 🏆 Top Users (Histórico)")
             st.caption("Este ranking considera todos os pontos já ganhos, independente se já foram gastos ou zerados.")
