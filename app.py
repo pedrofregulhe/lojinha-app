@@ -67,13 +67,19 @@ def processar_link_imagem(url):
     return url
 
 def formatar_telefone(tel_bruto):
+    # Remove espaços, parênteses, traços
     texto = str(tel_bruto).strip()
     if texto.endswith(".0"): texto = texto[:-2]
     apenas_numeros = re.sub(r'\D', '', texto)
-    if 10 <= len(apenas_numeros) <= 11: apenas_numeros = "55" + apenas_numeros
+    
+    # Se tiver entre 10 e 11 dígitos (Ex: 11999998888), adiciona 55
+    if 10 <= len(apenas_numeros) <= 11: 
+        apenas_numeros = "55" + apenas_numeros
+    # Se já tiver 12 ou 13 (Ex: 5511999998888), mantém
+    
     return apenas_numeros
 
-# --- NOVA FUNÇÃO DE SMS (INFOBIP) ---
+# --- FUNÇÃO SMS OTIMIZADA ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -82,12 +88,14 @@ def enviar_sms(telefone, mensagem_texto):
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
         
-        if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}"
+        # Validação extra
+        if len(tel_final) < 12: 
+            return False, f"Num Inválido: {tel_final} (Verifique DDD)"
 
         payload = {
             "messages": [
                 {
-                    "from": "LojinhaCulli", # Remetente padrão
+                    "from": "InfoSMS", # MUDANÇA: Nome genérico para evitar bloqueio no Brasil
                     "destinations": [{"to": tel_final}],
                     "text": mensagem_texto
                 }
@@ -100,12 +108,11 @@ def enviar_sms(telefone, mensagem_texto):
         }
         response = requests.post(url, json=payload, headers=headers)
         
-        # Log detalhado se der erro
         if response.status_code not in [200, 201]: 
-            return False, f"Erro SMS {response.status_code}: {response.text}"
+            return False, f"Erro {response.status_code}"
             
-        return True, "SMS Enviado"
-    except Exception as e: return False, f"Erro SMS Exception: {str(e)}"
+        return True, tel_final # Retorna o número para debug visual
+    except Exception as e: return False, str(e)
 
 def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
@@ -287,9 +294,11 @@ def tela_admin():
                                     env_zap += 1
                             if usar_sms:
                                 texto_sms = f"Ola {nome}, seu resgate de {row['item']} foi liberado! Cod: {row['codigo_vale']}."
-                                ok, msg_erro = enviar_sms(tel, texto_sms)
-                                if ok: env_sms += 1
-                                else: st.error(f"Erro SMS para {nome}: {msg_erro}") # MOSTRA ERRO NA TELA
+                                ok, info = enviar_sms(tel, texto_sms)
+                                if ok: 
+                                    env_sms += 1
+                                else:
+                                    st.error(f"Erro SMS para {nome}: {info}")
                                     
                     if env_zap > 0 or env_sms > 0: 
                         registrar_log("Admin", f"Enviou {env_zap} Zaps e {env_sms} SMS")
@@ -368,15 +377,16 @@ def tela_admin():
                             if enviar_whatsapp_template(tel, [nome, f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: 
                                 env_zap += 1
                         
-                        # SMS (CORRIGIDO E SEM PREFIXO)
+                        # SMS
                         if aviso_sms:
                             msg_sms = f"{nome}, seu saldo foi atualizado! Saldo atual: {float(row['saldo']):,.0f} pts."
-                            # Captura erro para debug
-                            ok, msg_erro = enviar_sms(tel, msg_sms)
+                            ok, info = enviar_sms(tel, msg_sms)
                             if ok: 
                                 env_sms += 1
+                                # DEBUG VISUAL: Mostra para onde foi enviado
+                                st.toast(f"SMS Enviado para: {info} ({nome})", icon="📨")
                             else:
-                                st.error(f"Falha SMS para {nome}: {msg_erro}")
+                                st.error(f"Falha SMS para {nome} (Tel: {tel}): {info}")
 
                     if env_zap > 0 or env_sms > 0: 
                         st.balloons()
