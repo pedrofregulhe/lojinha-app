@@ -102,7 +102,6 @@ def enviar_sms(telefone, mensagem_texto):
         if response.status_code not in [200, 201]: return False, f"Erro SMS: {response.status_code}"
         return True, "SMS Enviado"
     except Exception as e: return False, f"Erro SMS: {str(e)}"
-# ------------------------------------
 
 def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
@@ -263,7 +262,7 @@ def tela_admin():
             st.divider()
             st.markdown("##### 📢 Disparo de Prêmios")
             
-            # --- SELETOR DE CANAIS DE ENVIO ---
+            # --- SELETOR DE CANAIS DE ENVIO (PRÊMIOS) ---
             c_chan1, c_chan2 = st.columns(2)
             usar_zap = c_chan1.checkbox("Enviar por WhatsApp", value=True)
             usar_sms = c_chan2.checkbox("Enviar por SMS (Custo Extra)", value=False)
@@ -337,8 +336,7 @@ def tela_admin():
                 "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)")
             })
             
-            # --- AQUI ESTAVA O PROBLEMA: REMOVI O BOTÃO ANTIGO ---
-            c_u1, _ = st.columns(2) # Só mantive o botão de Salvar Tabela aqui
+            c_u1, _ = st.columns(2)
             if c_u1.button("💾 Salvar Tudo (Tabela)"):
                 with conn.session as sess:
                     for i, row in edit_u.iterrows():
@@ -347,12 +345,11 @@ def tela_admin():
                     sess.commit()
                 registrar_log("Admin", "Editou usuários na tabela"); st.success("Atualizado!"); time.sleep(1); st.rerun()
             
-            # --- PAINEL ÚNICO DE ENVIO DE SALDOS ---
+            # --- PAINEL ÚNICO DE ENVIO DE SALDOS (CORRIGIDO) ---
             st.divider()
             st.markdown("##### 📲 Enviar Avisos de Saldo")
             c_av1, c_av2, c_av3 = st.columns([1, 1, 2])
             
-            # Checkboxes com keys únicas para não dar conflito
             aviso_zap = c_av1.checkbox("WhatsApp", value=True, key="check_aviso_zap")
             aviso_sms = c_av2.checkbox("SMS", value=False, key="check_aviso_sms")
             
@@ -367,13 +364,16 @@ def tela_admin():
                     for i, row in sel.iterrows():
                         tel = str(row['telefone']); nome = str(row['nome'])
                         
+                        # ENVIO DE WHATSAPP
                         if aviso_zap:
-                            if enviar_whatsapp_template(tel, [nome, f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: env_zap += 1
+                            if enviar_whatsapp_template(tel, [nome, f"{float(row['saldo']):,.0f}"], "atualizar_saldo_pedidos")[0]: 
+                                env_zap += 1
                         
+                        # ENVIO DE SMS (AGORA ESTÁ AQUI!)
                         if aviso_sms:
-                            # Texto curto sem prefixo
-                            txt = f"{nome}, saldo atualizado! Voce tem {float(row['saldo']):,.0f} pts."
-                            if enviar_sms(tel, txt)[0]: env_sms += 1
+                            msg_sms = f"Ola {nome}, seu saldo atualizou! Voce tem {float(row['saldo']):,.0f} pts."
+                            if enviar_sms(tel, msg_sms)[0]: 
+                                env_sms += 1
 
                     if env_zap > 0 or env_sms > 0: 
                         st.balloons()
