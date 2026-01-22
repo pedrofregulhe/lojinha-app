@@ -7,6 +7,8 @@ import base64
 import bcrypt
 import requests
 import re
+import random
+import string
 
 # --- CONFIGURAÇÕES GERAIS ---
 st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
@@ -56,6 +58,10 @@ def verificar_senha_hash(senha_digitada, hash_armazenado):
 def gerar_hash(senha):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(senha.encode('utf-8'), salt).decode('utf-8')
+
+def gerar_senha_aleatoria(tamanho=6):
+    caracteres = string.ascii_uppercase + string.digits
+    return ''.join(random.choice(caracteres) for _ in range(tamanho))
 
 def processar_link_imagem(url):
     url = str(url).strip()
@@ -188,6 +194,43 @@ def abrir_modal_senha(usuario_cod):
             registrar_log("Senha Alterada", f"Usuário: {usuario_cod}")
             st.success("Sucesso!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
 
+@st.dialog("🔑 Recuperar Senha")
+def abrir_modal_esqueci_senha():
+    st.write("Digite seu usuário. Se ele existir, enviaremos uma nova senha via SMS para o telefone cadastrado.")
+    user_input = st.text_input("Usuário Cadastrado")
+    
+    if st.button("Gerar e Enviar Nova Senha", type="primary"):
+        df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
+        if df.empty:
+            st.error("Usuário não encontrado.")
+        else:
+            row = df.iloc[0]
+            tel = str(row['telefone'])
+            if len(formatar_telefone(tel)) < 12:
+                st.error("O telefone cadastrado para este usuário parece inválido. Contate o suporte.")
+                return
+
+            nova_senha = gerar_senha_aleatoria()
+            nova_senha_hash = gerar_hash(nova_senha)
+            
+            # Atualiza no banco
+            with conn.session as s:
+                s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": row['id']})
+                s.commit()
+            
+            # Envia SMS
+            msg = f"Lojinha Culli: Sua NOVA senha provisoria e: {nova_senha}"
+            ok, det, cod = enviar_sms(tel, msg)
+            
+            if ok:
+                st.success(f"Sucesso! Nova senha enviada para o telefone final {tel[-4:]}.")
+                registrar_log("Recuperação de Senha", f"Usuário: {row['usuario']}")
+                time.sleep(4)
+                st.rerun()
+            else:
+                st.error(f"Erro ao enviar SMS: {det}")
+
+
 @st.dialog("🎁 Confirmar Resgate")
 def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
     st.write(f"Resgatando: **{item_nome}** por **{custo} pts**.")
@@ -249,7 +292,7 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                     if tipo_envio == "vendas":
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
-                        # --- TEXTO ATUALIZADO (SEM ACENTOS PARA EVITAR ERROS) ---
+                        # Texto informativo com link
                         texto = f"Lojinha Culli: Ola {nome}, sua pontuacao foi atualizada e seu saldo atual e de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
                     
                     ok, det, cod = enviar_sms(tel, texto)
@@ -285,10 +328,16 @@ def tela_login():
             """, unsafe_allow_html=True)
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
             st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Botão de Entrar
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, n, t, sld = validar_login(u, s)
                 if ok: st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld}); st.rerun()
                 else: st.toast("Login inválido", icon="❌")
+        
+        # Botão de Esqueci Minha Senha (Fora do Form)
+        if st.button("Esqueci minha senha", type="secondary", use_container_width=True):
+            abrir_modal_esqueci_senha()
 
 def tela_admin():
     c_titulo, c_refresh = st.columns([4, 1])
@@ -404,9 +453,9 @@ def tela_principal():
     c_info, c_acoes = st.columns([3, 1])
     with c_info: st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     with c_acoes:
-        cs, cl = st.columns([1, 1], gap="small")
-        if cs.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
-        if cl.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
+        # BOTÕES EMPILHADOS VERTICALMENTE
+        if st.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
+        if st.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
     st.divider()
     
     if tipo == 'admin': tela_admin()
