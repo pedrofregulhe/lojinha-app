@@ -213,9 +213,12 @@ def abrir_modal_esqueci_senha():
             nova_senha = gerar_senha_aleatoria()
             nova_senha_hash = gerar_hash(nova_senha)
             
+            # --- CORREÇÃO AQUI: Convertendo para int nativo do Python ---
+            user_id = int(row['id'])
+
             # Atualiza no banco
             with conn.session as s:
-                s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": row['id']})
+                s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": user_id})
                 s.commit()
             
             # Envia SMS
@@ -292,7 +295,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                     if tipo_envio == "vendas":
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
-                        # Texto informativo com link
                         texto = f"Lojinha Culli: Ola {nome}, sua pontuacao foi atualizada e seu saldo atual e de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
                     
                     ok, det, cod = enviar_sms(tel, texto)
