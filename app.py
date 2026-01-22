@@ -74,19 +74,26 @@ def formatar_telefone(tel_bruto):
         apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
+# --- FUNÇÕES DE ENVIO QUE RETORNAM STATUS DETALHADO ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
-        if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}"
+        if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
+        
         payload = { "messages": [ { "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
+        
         response = requests.post(url, json=payload, headers=headers)
-        if response.status_code not in [200, 201]: return False, f"Erro API {response.status_code}: {response.text}"
-        return True, tel_final
-    except Exception as e: return False, str(e)
+        
+        # Retorna: Sucesso (Bool), Detalhe (Str), Codigo HTTP (Str)
+        if response.status_code not in [200, 201]: 
+            return False, f"Erro API: {response.text}", str(response.status_code)
+            
+        return True, "Enviado com Sucesso", str(response.status_code)
+    except Exception as e: return False, str(e), "EXCEPTION"
 
 def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
@@ -95,13 +102,18 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envi
         sender = st.secrets["INFOBIP_SENDER"]
         url = f"{base_url}/whatsapp/1/message/template"
         tel_final = formatar_telefone(telefone)
-        if len(tel_final) < 12: return False, f"Número inválido: {tel_final}"
+        if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
+        
         payload = { "messages": [ { "from": sender, "to": tel_final, "content": { "templateName": nome_template, "templateData": { "body": { "placeholders": parametros } }, "language": "pt_BR" } } ] }
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
+        
         response = requests.post(url, json=payload, headers=headers)
-        if response.status_code not in [200, 201]: return False, f"Erro API {response.status_code}: {response.text}"
-        return True, f"Enviado para {tel_final}"
-    except Exception as e: return False, f"Erro Conexão: {str(e)}"
+        
+        if response.status_code not in [200, 201]: 
+            return False, f"Erro API: {response.text}", str(response.status_code)
+            
+        return True, "Enviado com Sucesso", str(response.status_code)
+    except Exception as e: return False, f"Erro Conexão: {str(e)}", "EXCEPTION"
 
 # --- BANCO DE DADOS ---
 def run_query(query_str, params=None): return conn.query(query_str, params=params, ttl=0)
@@ -114,7 +126,7 @@ def registrar_log(acao, detalhes):
         run_transaction("INSERT INTO logs (data, responsavel, acao, detalhes) VALUES (NOW(), :resp, :acao, :det)", {"resp": resp, "acao": acao, "det": detalhes})
     except Exception as e: print(f"Erro log: {e}")
 
-# --- LÓGICA ---
+# --- LÓGICA DE NEGÓCIO ---
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
     if df.empty: return False, None, None, 0
@@ -167,7 +179,7 @@ def distribuir_pontos_multiplos(lista_usuarios, quantidade):
         return True
     except Exception as e: return False
 
-# --- MODAIS ---
+# --- MODAIS E DIÁLOGOS ---
 @st.dialog("🔐 Alterar Senha")
 def abrir_modal_senha(usuario_cod):
     n = st.text_input("Nova Senha", type="password"); c = st.text_input("Confirmar", type="password")
@@ -188,6 +200,95 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
             if len(formatar_telefone(tel)) < 12: st.error("Telefone inválido!"); return
             if salvar_venda(usuario_cod, item_nome, custo, email, formatar_telefone(tel)):
                 st.balloons(); st.success("Sucesso!"); time.sleep(2); st.rerun()
+
+# --- NOVO DIÁLOGO DE PROCESSAMENTO DE ENVIO (EXTRATO) ---
+@st.dialog("🚀 Confirmar e Processar Envios", width="large")
+def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="vendas"):
+    st.write(f"Você selecionou **{len(df_selecionados)} destinatários**.")
+    st.write(f"Canais Ativos: {'✅ WhatsApp' if usar_zap else ''} {'✅ SMS' if usar_sms else ''}")
+    
+    if not usar_zap and not usar_sms:
+        st.error("Nenhum canal de envio selecionado.")
+        return
+
+    st.warning("⚠️ **Atenção:** Ao clicar em Confirmar, o sistema iniciará o disparo. Não feche a janela até o fim.")
+    
+    if st.button("CONFIRMAR E DISPARAR", type="primary", use_container_width=True):
+        logs_envio = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        total = len(df_selecionados)
+        
+        # Container para o extrato em tempo real
+        log_container = st.container(height=300, border=True)
+        
+        for i, (index, row) in enumerate(df_selecionados.iterrows()):
+            status_text.text(f"Processando {i+1}/{total}: {row.get('nome', '')}...")
+            
+            # Dados base dependendo da tabela
+            tel = str(row['telefone'])
+            if tipo_envio == "vendas":
+                nome = str(row['nome_real'] or row['usuario'])
+                var1 = str(row['item'])
+                var2 = str(row['codigo_vale'])
+            else: # usuarios
+                nome = str(row['nome'])
+                try: var1 = f"{float(row['saldo']):,.0f}"
+                except: var1 = "0"
+                var2 = ""
+
+            # Envio WhatsApp
+            if usar_zap:
+                if len(formatar_telefone(tel)) >= 12:
+                    if tipo_envio == "vendas":
+                        ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos")
+                    else:
+                        ok, det, cod = enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos")
+                    
+                    logs_envio.append({
+                        "Nome": nome, "Tel": tel, "Canal": "WhatsApp", 
+                        "Status": "✅ OK" if ok else "❌ Erro", 
+                        "Detalhe API": det, "Cód": cod, "Hora": datetime.now().strftime("%H:%M:%S")
+                    })
+                else:
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-", "Hora": datetime.now().strftime("%H:%M:%S")})
+
+            # Envio SMS
+            if usar_sms:
+                if len(formatar_telefone(tel)) >= 12:
+                    if tipo_envio == "vendas":
+                        texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
+                    else:
+                        texto = f"Ola {nome}, seu saldo foi atualizado! Saldo atual: {var1} pts. Acesse a loja para conferir."
+                    
+                    ok, det, cod = enviar_sms(tel, texto)
+                    
+                    logs_envio.append({
+                        "Nome": nome, "Tel": tel, "Canal": "SMS", 
+                        "Status": "✅ OK" if ok else "❌ Erro", 
+                        "Detalhe API": det, "Cód": cod, "Hora": datetime.now().strftime("%H:%M:%S")
+                    })
+                else:
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-", "Hora": datetime.now().strftime("%H:%M:%S")})
+
+            progress_bar.progress((i + 1) / total)
+            
+            # Atualiza log visual a cada passo
+            df_log = pd.DataFrame(logs_envio)
+            log_container.dataframe(df_log, use_container_width=True, hide_index=True)
+
+        progress_bar.empty()
+        status_text.success("Processamento Finalizado!")
+        registrar_log("Disparo em Massa", f"Tipo: {tipo_envio} | Qtd: {total}")
+        
+        st.download_button(
+            label="📥 Baixar Extrato de Envios (CSV)",
+            data=pd.DataFrame(logs_envio).to_csv(index=False).encode('utf-8'),
+            file_name=f'log_envio_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
+            mime='text/csv',
+        )
+        if st.button("Fechar e Atualizar"):
+            st.rerun()
 
 # --- TELAS ---
 def tela_login():
@@ -255,34 +356,11 @@ def tela_admin():
                     registrar_log("Admin", "Editou vendas"); st.success("Salvo!"); time.sleep(1); st.rerun()
 
             with c_btn_send_1:
+                # --- AQUI CHAMA O NOVO MODAL ---
                 if st.button("📤 Enviar Selecionados", type="primary", use_container_width=True):
                     sel = edit_v[edit_v['Enviar'] == True]
-                    env_zap = 0
-                    env_sms = 0
-                    
-                    if sel.empty:
-                        st.warning("Ninguém selecionado.")
-                    else:
-                        for i, row in sel.iterrows():
-                            tel = str(row['telefone']); nome = str(row['nome_real'] or row['usuario'])
-                            
-                            if len(formatar_telefone(tel)) >= 12 and row['codigo_vale']:
-                                if usar_zap:
-                                    if enviar_whatsapp_template(tel, [nome, str(row['item']), str(row['codigo_vale'])])[0]: 
-                                        env_zap += 1
-                                if usar_sms:
-                                    texto_sms = f"Ola {nome}, seu resgate de {row['item']} foi liberado! Cod: {row['codigo_vale']}."
-                                    ok, info = enviar_sms(tel, texto_sms)
-                                    if ok: 
-                                        env_sms += 1
-                                    else:
-                                        st.error(f"Erro SMS para {nome}: {info}")
-                                        
-                        if env_zap > 0 or env_sms > 0: 
-                            registrar_log("Admin", f"Enviou {env_zap} Zaps e {env_sms} SMS")
-                            st.balloons()
-                            st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})")
-                            time.sleep(3); st.rerun()
+                    if sel.empty: st.warning("Ninguém selecionado.")
+                    else: processar_envios_dialog(sel, usar_zap, usar_sms, tipo_envio="vendas")
 
     with t2:
         with st.expander("➕ Cadastrar Novo Usuário"):
@@ -296,7 +374,6 @@ def tela_admin():
                     if ok: st.success(msg); time.sleep(1.5); st.rerun()
                     else: st.error(msg)
         
-        # --- ALTERADO AQUI PARA FECHADO (expanded=False) ---
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=False):
             st.info("Selecione uma ou mais pessoas para dar pontos. Soma no Saldo e no Ranking.")
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
@@ -344,48 +421,11 @@ def tela_admin():
                     registrar_log("Admin", "Editou usuários na tabela"); st.toast("Dados atualizados!", icon="✅"); time.sleep(1); st.rerun()
 
             with c_btn_send_2:
+                # --- AQUI CHAMA O NOVO MODAL ---
                 if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
                     sel = edit_u[edit_u['Notificar'] == True]
-                    env_zap = 0
-                    env_sms = 0
-                    erros_lista = []
-                    
-                    if sel.empty:
-                        st.warning("Ninguém selecionado.")
-                    else:
-                        bar_progresso = st.progress(0)
-                        total = len(sel)
-                        
-                        for i, (index, row) in enumerate(sel.iterrows()):
-                            tel = str(row['telefone'])
-                            nome = str(row['nome'])
-                            try: saldo_fmt = f"{float(row['saldo']):,.0f}" 
-                            except: saldo_fmt = "0"
-                            
-                            if len(formatar_telefone(tel)) >= 12:
-                                if aviso_zap:
-                                    ok_zap, info_zap = enviar_whatsapp_template(tel, [nome, saldo_fmt], "atualizar_saldo_pedidos")
-                                    if ok_zap: env_zap += 1
-                                
-                                if aviso_sms:
-                                    msg_sms = f"Ola {nome}, seu saldo foi atualizado! Saldo atual: {saldo_fmt} pts. Acesse a loja para conferir."
-                                    ok_sms, info_sms = enviar_sms(tel, msg_sms)
-                                    if ok_sms: env_sms += 1
-                                    else: erros_lista.append(f"{nome}: {info_sms}")
-                            else:
-                                erros_lista.append(f"{nome}: Tel inválido ({tel})")
-
-                            bar_progresso.progress((i + 1) / total)
-                        bar_progresso.empty()
-
-                        if env_zap > 0 or env_sms > 0: 
-                            st.balloons()
-                            st.success(f"Enviado! (WhatsApp: {env_zap} | SMS: {env_sms})")
-                        
-                        if erros_lista:
-                            with st.expander("⚠️ Relatório de Problemas", expanded=True):
-                                for err in erros_lista: st.error(err)
-                        time.sleep(4); st.rerun()
+                    if sel.empty: st.warning("Ninguém selecionado.")
+                    else: processar_envios_dialog(sel, aviso_zap, aviso_sms, tipo_envio="usuarios")
 
     with t3:
         df_p = run_query("SELECT * FROM premios ORDER BY id"); edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p")
