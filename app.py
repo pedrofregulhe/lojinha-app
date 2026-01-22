@@ -37,12 +37,44 @@ st.markdown(f"""
     .stDeployButton {{ display: none; }}
     @keyframes gradient {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
     {bg_style}
-    .block-container {{ padding-top: 2rem !important; padding-bottom: 2rem !important; }}
+    .block-container {{ padding-top: 1rem !important; padding-bottom: 1rem !important; }}
+    
+    /* Estilo do Formulário de Login */
     [data-testid="stForm"] {{ background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none; }}
+    
+    /* Header do Usuário Logado */
     .header-style {{ background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 10s ease infinite; padding: 25px 30px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%; }}
+    
+    /* Imagens dos Prêmios */
     [data-testid="stImage"] img {{ height: 150px !important; object-fit: contain !important; border-radius: 10px; }}
-    div.stButton > button[kind="secondary"] {{ background-color: #0066cc; color: white; border-radius: 8px; border: none; height: 45px; font-weight: 600; width: 100%; }}
-    div.stButton > button[kind="primary"] {{ background-color: #ff4b4b !important; color: white !important; border-radius: 8px; border: none; height: 45px; font-weight: 600; width: 100%; }}
+    
+    /* Botão Secundário (BRANCO) - Esqueci a Senha */
+    div.stButton > button[kind="secondary"] {{ 
+        background-color: #ffffff; 
+        color: #003366; 
+        border-radius: 8px; 
+        border: 1px solid #d1d5db; 
+        height: 45px; 
+        font-weight: 600; 
+        width: 100%; 
+    }}
+    div.stButton > button[kind="secondary"]:hover {{ 
+        border-color: #003366; 
+        color: #003366; 
+        background-color: #f9fafb;
+    }}
+
+    /* Botão Primário (VERMELHO/LARANJA) */
+    div.stButton > button[kind="primary"] {{ 
+        background-color: #ff4b4b !important; 
+        color: white !important; 
+        border-radius: 8px; 
+        border: none; 
+        height: 45px; 
+        font-weight: 600; 
+        width: 100%; 
+    }}
+    
     .big-success {{ padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }}
     [data-testid="column"] {{ display: flex; flex-direction: column; justify-content: center; }}
     </style>
@@ -212,16 +244,12 @@ def abrir_modal_esqueci_senha():
 
             nova_senha = gerar_senha_aleatoria()
             nova_senha_hash = gerar_hash(nova_senha)
-            
-            # --- CORREÇÃO AQUI: Convertendo para int nativo do Python ---
-            user_id = int(row['id'])
+            user_id = int(row['id']) # Garante int nativo do Python
 
-            # Atualiza no banco
             with conn.session as s:
                 s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": user_id})
                 s.commit()
             
-            # Envia SMS
             msg = f"Lojinha Culli: Sua NOVA senha provisoria e: {nova_senha}"
             ok, det, cod = enviar_sms(tel, msg)
             
@@ -316,7 +344,8 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
 def tela_login():
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        # --- REMOVIDO ESPAÇOS EM BRANCO EXCESSIVOS ---
+        st.write("") # Apenas um pequeno respiro
         with st.form("f_login"):
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 30px;">
@@ -331,13 +360,11 @@ def tela_login():
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Botão de Entrar
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, n, t, sld = validar_login(u, s)
                 if ok: st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld}); st.rerun()
                 else: st.toast("Login inválido", icon="❌")
         
-        # Botão de Esqueci Minha Senha (Fora do Form)
         if st.button("Esqueci minha senha", type="secondary", use_container_width=True):
             abrir_modal_esqueci_senha()
 
@@ -408,7 +435,7 @@ def tela_admin():
                 else: st.warning("Selecione alguém e um valor maior que 0.")
 
         st.divider()
-        st.write("### Gerenciar Usuários (Tabela Completa)")
+        # --- REMOVIDO O TÍTULO AQUI ---
         
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
@@ -455,7 +482,6 @@ def tela_principal():
     c_info, c_acoes = st.columns([3, 1])
     with c_info: st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     with c_acoes:
-        # BOTÕES EMPILHADOS VERTICALMENTE
         if st.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
         if st.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
     st.divider()
