@@ -249,8 +249,8 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                     if tipo_envio == "vendas":
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
-                        # MUDANÇA CRÍTICA: Texto simplificado para evitar filtro anti-spam das operadoras
-                        texto = f"Culligan: Ola {nome}, seu saldo atual e de {var1} pontos."
+                        # --- TEXTO ATUALIZADO (SEM ACENTOS PARA EVITAR ERROS) ---
+                        texto = f"Lojinha Culli: Ola {nome}, sua pontuacao foi atualizada e seu saldo atual e de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
                     
                     ok, det, cod = enviar_sms(tel, texto)
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det, "Cód": cod})
