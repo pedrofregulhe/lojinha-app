@@ -298,7 +298,7 @@ def abrir_modal_esqueci_senha():
                 s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": user_id})
                 s.commit()
             
-            msg = f"Lojinha Culli: Sua NOVA senha provisoria e: {nova_senha}"
+            msg = f"Lojinha Culli: Sua nova senha provisoria e: {nova_senha}"
             ok, det, cod = enviar_sms(tel, msg)
             
             if ok:
@@ -397,7 +397,7 @@ def tela_login():
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 20px;">
                     <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: 10px;">
-                        LOJINHA CULLI
+                        Lojinha Culli's
                     </h1>
                     <p style="color: #555555; font-size: 0.9rem; line-height: 1.4; font-weight: 400; margin: 0;">
                         Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
