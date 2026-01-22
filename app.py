@@ -74,7 +74,7 @@ def formatar_telefone(tel_bruto):
         apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
-# --- FUNÇÕES DE ENVIO QUE RETORNAM STATUS DETALHADO ---
+# --- FUNÇÕES DE ENVIO ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -88,7 +88,6 @@ def enviar_sms(telefone, mensagem_texto):
         
         response = requests.post(url, json=payload, headers=headers)
         
-        # Retorna: Sucesso (Bool), Detalhe (Str), Codigo HTTP (Str)
         if response.status_code not in [200, 201]: 
             return False, f"Erro API: {response.text}", str(response.status_code)
             
@@ -201,7 +200,6 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
             if salvar_venda(usuario_cod, item_nome, custo, email, formatar_telefone(tel)):
                 st.balloons(); st.success("Sucesso!"); time.sleep(2); st.rerun()
 
-# --- NOVO DIÁLOGO DE PROCESSAMENTO DE ENVIO (EXTRATO) ---
 @st.dialog("🚀 Confirmar e Processar Envios", width="large")
 def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="vendas"):
     st.write(f"Você selecionou **{len(df_selecionados)} destinatários**.")
@@ -218,77 +216,56 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
         progress_bar = st.progress(0)
         status_text = st.empty()
         total = len(df_selecionados)
-        
-        # Container para o extrato em tempo real
         log_container = st.container(height=300, border=True)
         
         for i, (index, row) in enumerate(df_selecionados.iterrows()):
             status_text.text(f"Processando {i+1}/{total}: {row.get('nome', '')}...")
             
-            # Dados base dependendo da tabela
             tel = str(row['telefone'])
             if tipo_envio == "vendas":
                 nome = str(row['nome_real'] or row['usuario'])
                 var1 = str(row['item'])
                 var2 = str(row['codigo_vale'])
-            else: # usuarios
+            else: 
                 nome = str(row['nome'])
                 try: var1 = f"{float(row['saldo']):,.0f}"
                 except: var1 = "0"
                 var2 = ""
 
-            # Envio WhatsApp
+            # WhatsApp
             if usar_zap:
                 if len(formatar_telefone(tel)) >= 12:
                     if tipo_envio == "vendas":
                         ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos")
                     else:
                         ok, det, cod = enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos")
-                    
-                    logs_envio.append({
-                        "Nome": nome, "Tel": tel, "Canal": "WhatsApp", 
-                        "Status": "✅ OK" if ok else "❌ Erro", 
-                        "Detalhe API": det, "Cód": cod, "Hora": datetime.now().strftime("%H:%M:%S")
-                    })
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det, "Cód": cod})
                 else:
-                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-", "Hora": datetime.now().strftime("%H:%M:%S")})
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-"})
 
-            # Envio SMS
+            # SMS
             if usar_sms:
                 if len(formatar_telefone(tel)) >= 12:
                     if tipo_envio == "vendas":
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
-                        texto = f"Ola {nome}, seu saldo foi atualizado! Saldo atual: {var1} pts. Acesse a loja para conferir."
+                        # MUDANÇA CRÍTICA: Texto simplificado para evitar filtro anti-spam das operadoras
+                        texto = f"Culligan: Ola {nome}, seu saldo atual e de {var1} pontos."
                     
                     ok, det, cod = enviar_sms(tel, texto)
-                    
-                    logs_envio.append({
-                        "Nome": nome, "Tel": tel, "Canal": "SMS", 
-                        "Status": "✅ OK" if ok else "❌ Erro", 
-                        "Detalhe API": det, "Cód": cod, "Hora": datetime.now().strftime("%H:%M:%S")
-                    })
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det, "Cód": cod})
                 else:
-                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-", "Hora": datetime.now().strftime("%H:%M:%S")})
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-"})
 
             progress_bar.progress((i + 1) / total)
-            
-            # Atualiza log visual a cada passo
-            df_log = pd.DataFrame(logs_envio)
-            log_container.dataframe(df_log, use_container_width=True, hide_index=True)
+            log_container.dataframe(pd.DataFrame(logs_envio), use_container_width=True, hide_index=True)
 
         progress_bar.empty()
         status_text.success("Processamento Finalizado!")
         registrar_log("Disparo em Massa", f"Tipo: {tipo_envio} | Qtd: {total}")
         
-        st.download_button(
-            label="📥 Baixar Extrato de Envios (CSV)",
-            data=pd.DataFrame(logs_envio).to_csv(index=False).encode('utf-8'),
-            file_name=f'log_envio_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
-            mime='text/csv',
-        )
-        if st.button("Fechar e Atualizar"):
-            st.rerun()
+        st.download_button(label="📥 Baixar Extrato (CSV)", data=pd.DataFrame(logs_envio).to_csv(index=False).encode('utf-8'), file_name=f'log_{datetime.now().strftime("%Y%m%d_%H%M")}.csv', mime='text/csv')
+        if st.button("Fechar e Atualizar"): st.rerun()
 
 # --- TELAS ---
 def tela_login():
@@ -339,14 +316,9 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- LAYOUT ABA 1 ---
             c_check_zap_1, c_check_sms_1, c_btn_save_1, c_btn_send_1 = st.columns([0.8, 0.8, 1.2, 1.5])
-            
-            with c_check_zap_1:
-                usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas")
-            with c_check_sms_1:
-                usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas")
-            
+            with c_check_zap_1: usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas")
+            with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas")
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
                     with conn.session as s:
@@ -354,9 +326,7 @@ def tela_admin():
                             s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": row['id']})
                         s.commit()
                     registrar_log("Admin", "Editou vendas"); st.success("Salvo!"); time.sleep(1); st.rerun()
-
             with c_btn_send_1:
-                # --- AQUI CHAMA O NOVO MODAL ---
                 if st.button("📤 Enviar Selecionados", type="primary", use_container_width=True):
                     sel = edit_v[edit_v['Enviar'] == True]
                     if sel.empty: st.warning("Ninguém selecionado.")
@@ -379,14 +349,11 @@ def tela_admin():
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
             df_users_list = run_query("SELECT usuario FROM usuarios WHERE tipo NOT IN ('admin', 'staff') ORDER BY usuario")
             lista_users = df_users_list['usuario'].tolist() if not df_users_list.empty else []
-            
             target_users = c_d1.multiselect("Selecione os Usuários", ["Todos"] + lista_users)
             qtd_pontos = c_d2.number_input("Pontos", step=50, value=0)
-            
             if c_d3.button("➕ Creditar", type="primary", use_container_width=True):
                 if qtd_pontos > 0 and target_users:
-                    if distribuir_pontos_multiplos(target_users, qtd_pontos): 
-                        st.success("Creditado com sucesso!"); time.sleep(2); st.rerun()
+                    if distribuir_pontos_multiplos(target_users, qtd_pontos): st.success("Creditado com sucesso!"); time.sleep(2); st.rerun()
                 else: st.warning("Selecione alguém e um valor maior que 0.")
 
         st.divider()
@@ -403,14 +370,9 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- LAYOUT ABA 2 ---
             c_check_zap_2, c_check_sms_2, c_btn_save_2, c_btn_send_2 = st.columns([0.8, 0.8, 1.2, 1.5])
-
-            with c_check_zap_2:
-                aviso_zap = st.checkbox("WhatsApp", value=True, key="check_bal_zap")
-            with c_check_sms_2:
-                aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms")
-            
+            with c_check_zap_2: aviso_zap = st.checkbox("WhatsApp", value=True, key="check_bal_zap")
+            with c_check_sms_2: aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms")
             with c_btn_save_2:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_users"):
                     with conn.session as sess:
@@ -419,9 +381,7 @@ def tela_admin():
                                          {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": row['id']})
                         sess.commit()
                     registrar_log("Admin", "Editou usuários na tabela"); st.toast("Dados atualizados!", icon="✅"); time.sleep(1); st.rerun()
-
             with c_btn_send_2:
-                # --- AQUI CHAMA O NOVO MODAL ---
                 if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
                     sel = edit_u[edit_u['Notificar'] == True]
                     if sel.empty: st.warning("Ninguém selecionado.")
