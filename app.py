@@ -23,49 +23,19 @@ if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
 if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
-# --- CSS ---
-if not st.session_state.get('logado', False):
-    bg_style = ".stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }"
-else:
-    bg_style = ".stApp { background-color: #f4f8fb; }"
-
-st.markdown(f"""
-    <style>
+# --- CSS DINÂMICO (Variável conforme estado de Login) ---
+css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
-    html, body, [class*="css"] {{ font-family: 'Poppins', sans-serif; }}
-    header {{ visibility: hidden; }}
-    .stDeployButton {{ display: none; }}
-    @keyframes gradient {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
-    {bg_style}
-    .block-container {{ padding-top: 1rem !important; padding-bottom: 1rem !important; }}
-    
-    /* Estilo do Formulário de Login */
-    [data-testid="stForm"] {{ background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none; }}
-    
-    /* Header do Usuário Logado */
-    .header-style {{ background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 10s ease infinite; padding: 25px 30px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 100%; }}
+    html, body, [class*="css"] { font-family: 'Poppins', sans-serif; }
+    header { visibility: hidden; }
+    .stDeployButton { display: none; }
+    .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
     
     /* Imagens dos Prêmios */
-    [data-testid="stImage"] img {{ height: 150px !important; object-fit: contain !important; border-radius: 10px; }}
+    [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
     
-    /* Botão Secundário (BRANCO) - Esqueci a Senha */
-    div.stButton > button[kind="secondary"] {{ 
-        background-color: #ffffff; 
-        color: #003366; 
-        border-radius: 8px; 
-        border: 1px solid #d1d5db; 
-        height: 45px; 
-        font-weight: 600; 
-        width: 100%; 
-    }}
-    div.stButton > button[kind="secondary"]:hover {{ 
-        border-color: #003366; 
-        color: #003366; 
-        background-color: #f9fafb;
-    }}
-
-    /* Botão Primário (VERMELHO/LARANJA) */
-    div.stButton > button[kind="primary"] {{ 
+    /* Botão Primário (VERMELHO/LARANJA) - Usado para Entrar, Sair, Confirmar */
+    div.stButton > button[kind="primary"] { 
         background-color: #ff4b4b !important; 
         color: white !important; 
         border-radius: 8px; 
@@ -73,12 +43,90 @@ st.markdown(f"""
         height: 45px; 
         font-weight: 600; 
         width: 100%; 
-    }}
+    }
     
-    .big-success {{ padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }}
-    [data-testid="column"] {{ display: flex; flex-direction: column; justify-content: center; }}
-    </style>
-""", unsafe_allow_html=True)
+    .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
+    [data-testid="column"] { display: flex; flex-direction: column; justify-content: center; }
+"""
+
+if not st.session_state.get('logado', False):
+    # --- ESTILO TELA DE LOGIN ---
+    estilo_especifico = """
+    .stApp { 
+        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
+        background-size: 400% 400%; 
+        animation: gradient 15s ease infinite; 
+    }
+    @keyframes gradient { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+    
+    /* Estilo do Formulário de Login (Caixa Branca) */
+    [data-testid="stForm"] { 
+        background-color: #ffffff; 
+        padding: 40px; 
+        border-radius: 20px; 
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+        border: none; 
+    }
+    
+    /* TRANSFORMANDO O BOTÃO SECUNDÁRIO EM LINK (Apenas no Login) */
+    div.stButton > button[kind="secondary"] { 
+        background-color: transparent !important; 
+        color: white !important; /* Texto Branco para destacar no fundo azul */
+        border: none !important; 
+        box-shadow: none !important;
+        height: auto !important; 
+        font-weight: 400; 
+        width: 100%; 
+        text-decoration: underline;
+        margin-top: 5px;
+    }
+    div.stButton > button[kind="secondary"]:hover { 
+        color: #ff4b4b !important; 
+        background-color: transparent !important;
+    }
+    div.stButton > button[kind="secondary"]:focus:not(:active) {
+        border-color: transparent !important;
+        color: white !important;
+    }
+    """
+else:
+    # --- ESTILO TELA PRINCIPAL (LOGADO) ---
+    estilo_especifico = """
+    .stApp { background-color: #f4f8fb; }
+    
+    /* Header do Usuário Logado */
+    .header-style { 
+        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
+        background-size: 400% 400%; 
+        animation: gradient 10s ease infinite; 
+        padding: 25px 30px; 
+        border-radius: 15px; 
+        color: white; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+        display: flex; 
+        flex-direction: column; 
+        justify-content: center; 
+        height: 100%; 
+    }
+    
+    /* Botão Secundário NORMAL (Caixa Branca) - Para 'Alterar Senha' */
+    div.stButton > button[kind="secondary"] { 
+        background-color: #ffffff; 
+        color: #003366; 
+        border-radius: 8px; 
+        border: 1px solid #d1d5db; 
+        height: 45px; 
+        font-weight: 600; 
+        width: 100%; 
+    }
+    div.stButton > button[kind="secondary"]:hover { 
+        border-color: #003366; 
+        color: #003366; 
+        background-color: #f9fafb;
+    }
+    """
+
+st.markdown(f"<style>{css_comum} {estilo_especifico}</style>", unsafe_allow_html=True)
 
 # --- FUNÇÕES ---
 def verificar_senha_hash(senha_digitada, hash_armazenado):
@@ -244,7 +292,7 @@ def abrir_modal_esqueci_senha():
 
             nova_senha = gerar_senha_aleatoria()
             nova_senha_hash = gerar_hash(nova_senha)
-            user_id = int(row['id']) # Garante int nativo do Python
+            user_id = int(row['id']) 
 
             with conn.session as s:
                 s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": user_id})
@@ -344,27 +392,27 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
 def tela_login():
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
-        # --- REMOVIDO ESPAÇOS EM BRANCO EXCESSIVOS ---
-        st.write("") # Apenas um pequeno respiro
+        st.write("") # Pequeno espaçamento
         with st.form("f_login"):
             st.markdown("""
-                <div style="text-align: center; margin-bottom: 30px;">
-                    <h1 style="color: #003366; font-weight: 900; font-size: 3rem; margin: 0; margin-bottom: 10px;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: 10px;">
                         LOJINHA CULLI
                     </h1>
-                    <p style="color: #555555; font-size: 0.95rem; line-height: 1.4; font-weight: 400; margin: 0;">
+                    <p style="color: #555555; font-size: 0.9rem; line-height: 1.4; font-weight: 400; margin: 0;">
                         Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
                     </p>
                 </div>
             """, unsafe_allow_html=True)
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.write("") # Espaço mínimo
             
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, n, t, sld = validar_login(u, s)
                 if ok: st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld}); st.rerun()
                 else: st.toast("Login inválido", icon="❌")
         
+        # Botão com visual de LINK abaixo do formulário
         if st.button("Esqueci minha senha", type="secondary", use_container_width=True):
             abrir_modal_esqueci_senha()
 
@@ -435,7 +483,7 @@ def tela_admin():
                 else: st.warning("Selecione alguém e um valor maior que 0.")
 
         st.divider()
-        # --- REMOVIDO O TÍTULO AQUI ---
+        # --- TÍTULO REMOVIDO CONFORME PEDIDO ---
         
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
