@@ -421,7 +421,7 @@ def tela_admin():
     c_titulo.subheader("🛠️ Painel Admin")
     if c_refresh.button("🔄 Atualizar"): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
         
-    t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
+    t1, t2, t3, t4 = st.tabs(["📊Resgates & Vouchers", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
     
     with t1:
         df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
