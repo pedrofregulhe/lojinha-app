@@ -67,6 +67,7 @@ css_comum = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
+    /* REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
@@ -390,7 +391,6 @@ def ver_detalhes_produto(item, imagem, custo, descricao):
     st.divider()
     st.info("ℹ️ **Informações de Entrega:**\nEste item será enviado para o endereço ou contato cadastrado. O prazo de processamento é de até 5 dias úteis.")
 
-# --- DIÁLOGO DE ENVIO COMPACTO (ATUALIZADO) ---
 @st.dialog("🚀 Confirmar e Processar Envios", width="large")
 def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="vendas"):
     st.write(f"Você selecionou **{len(df_selecionados)} destinatários**.")
@@ -419,8 +419,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
         progress_bar = st.progress(0)
         status_text = st.empty()
         total = len(df_selecionados)
-        
-        # REMOVIDO: Container que mostrava a tabela crescendo (causava o problema de tamanho)
         
         for i, (index, row) in enumerate(df_selecionados.iterrows()):
             status_text.text(f"Processando {i+1}/{total}: {row.get('nome', '')}...")
@@ -459,11 +457,9 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
 
             progress_bar.progress((i + 1) / total)
 
-        # FIM DO PROCESSO: MOSTRAR RESUMO
         progress_bar.empty()
         status_text.success("Processamento Finalizado!")
         
-        # Calcular Métricas Rápidas
         sucessos = len([x for x in logs_envio if "OK" in x['Status']])
         erros = len(logs_envio) - sucessos
         
@@ -473,7 +469,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
         
         registrar_log("Disparo em Massa", f"Tipo: {tipo_envio} | Qtd: {total}")
         
-        # Log Completo escondido no Expander
         with st.expander("📄 Ver Detalhes (Log Completo)"):
             st.dataframe(pd.DataFrame(logs_envio), use_container_width=True)
             
@@ -562,9 +557,7 @@ def tela_login():
                     abrir_modal_resete_senha("Primeiro Acesso")
 
 def tela_admin():
-    c_titulo, c_refresh = st.columns([4, 1])
-    c_titulo.subheader("🛠️ Painel Admin")
-    if c_refresh.button("🔄 Atualizar"): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
+    st.subheader("🛠️ Painel Admin")
         
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
     
@@ -593,9 +586,16 @@ def tela_admin():
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
                     with conn.session as s:
                         for i, row in edit_v.iterrows():
-                            s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": row['id']})
+                            # ATUALIZADO: Cast explícito de ID para int e limpeza de cache
+                            s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), 
+                                     {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": int(row['id'])})
                         s.commit()
-                    registrar_log("Admin", "Editou vendas"); st.success("Salvo!"); time.sleep(1); st.rerun()
+                    # ATUALIZADO: Limpeza de cache obrigatória para ver a mudança
+                    st.cache_data.clear()
+                    registrar_log("Admin", "Editou vendas")
+                    st.success("Salvo!")
+                    time.sleep(1)
+                    st.rerun()
             with c_btn_send_1:
                 if st.button("📤 Enviar Selecionados", type="primary", use_container_width=True):
                     sel = edit_v[edit_v['Enviar'] == True]
@@ -611,7 +611,9 @@ def tela_admin():
                 bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff"])
                 if st.form_submit_button("Cadastrar"):
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t)
-                    if ok: st.success(msg); time.sleep(1.5); st.rerun()
+                    if ok: 
+                        st.cache_data.clear() # Limpa cache ao cadastrar
+                        st.success(msg); time.sleep(1.5); st.rerun()
                     else: st.error(msg)
         
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=False):
@@ -623,7 +625,9 @@ def tela_admin():
             qtd_pontos = c_d2.number_input("Pontos", step=50, value=0)
             if c_d3.button("➕ Creditar", type="primary", use_container_width=True):
                 if qtd_pontos > 0 and target_users:
-                    if distribuir_pontos_multiplos(target_users, qtd_pontos): st.success("Creditado com sucesso!"); time.sleep(2); st.rerun()
+                    if distribuir_pontos_multiplos(target_users, qtd_pontos): 
+                        st.cache_data.clear() # Limpa cache ao distribuir
+                        st.success("Creditado com sucesso!"); time.sleep(2); st.rerun()
                 else: st.warning("Selecione alguém e um valor maior que 0.")
 
         st.divider()
@@ -644,9 +648,12 @@ def tela_admin():
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_users"):
                     with conn.session as sess:
                         for i, row in edit_u.iterrows():
+                            # ATUALIZADO: Cast explícito de ID para int e limpeza de cache
                             sess.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
-                                     {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": row['id']})
+                                     {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": int(row['id'])})
                         sess.commit()
+                    # ATUALIZADO: Limpeza de cache
+                    st.cache_data.clear()
                     registrar_log("Admin", "Editou usuários na tabela"); st.toast("Dados atualizados!", icon="✅"); time.sleep(1); st.rerun()
             with c_btn_send_2:
                 if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
@@ -664,9 +671,11 @@ def tela_admin():
             with conn.session as sess:
                 for i, row in edit_p.iterrows():
                     if row['id']: 
+                        # ATUALIZADO: Cast explícito de ID para int e limpeza de cache
                         sess.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), 
-                            {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao', ''), "id": row['id']})
+                            {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao', ''), "id": int(row['id'])})
                 sess.commit()
+            st.cache_data.clear()
             st.success("Salvo!"); st.rerun()
 
     with t4:
@@ -677,14 +686,12 @@ def tela_principal():
     
     # --- LAYOUT HEADER DINÂMICO ---
     if tipo == 'admin':
-        # Admin vê 4 colunas: Banner | Atualizar | Senha | Sair
         cols = st.columns([3, 1, 1, 1], gap="small")
         c_banner = cols[0]
         c_refresh = cols[1]
         c_senha = cols[2]
         c_sair = cols[3]
     else:
-        # Comum vê 3 colunas: Banner | Senha | Sair
         cols = st.columns([3, 1, 1], gap="medium")
         c_banner = cols[0]
         c_senha = cols[1]
