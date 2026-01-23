@@ -67,7 +67,6 @@ css_comum = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
-    /* REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
@@ -588,8 +587,9 @@ def tela_admin():
                     try:
                         with conn.session as s:
                             for i, row in edit_v.iterrows():
-                                s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), 
-                                         {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": int(row['id'])})
+                                # ATUALIZADO: Salva TODAS as colunas editáveis
+                                s.execute(text("UPDATE vendas SET item=:item, valor=:valor, codigo_vale=:c, status=:st, nome_real=:n, telefone=:t, email=:e WHERE id=:id"), 
+                                         {"item": str(row['item']), "valor": float(row['valor']), "c": str(row['codigo_vale']), "st": str(row['status']), "n": str(row['nome_real']), "t": str(row['telefone']), "e": str(row.get('email', '')), "id": int(row['id'])})
                             s.commit()
                         registrar_log("Admin", "Editou vendas")
                         st.success("Salvo com sucesso!")
@@ -639,7 +639,7 @@ def tela_admin():
                 "Notificar": st.column_config.CheckboxColumn("Avisar?", default=False),
                 "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"),
                 "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"),
-                "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff"], required=True) # SELETOR FIXO PARA EVITAR ERRO
+                "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff"], required=True)
             })
             
             st.markdown("<br>", unsafe_allow_html=True)
@@ -652,9 +652,9 @@ def tela_admin():
                     try:
                         with conn.session as s:
                             for i, row in edit_u.iterrows():
-                                # Cast forçado para evitar erros de tipo
+                                # ATUALIZADO: Salva todas as colunas
                                 s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
-                                         {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": int(row['id'])})
+                                         {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": str(row['telefone']), "n": str(row['nome']), "tp": str(row['tipo']), "id": int(row['id'])})
                             s.commit()
                         registrar_log("Admin", "Editou usuários na tabela")
                         st.success("Dados atualizados!")
@@ -680,9 +680,15 @@ def tela_admin():
             try:
                 with conn.session as sess:
                     for i, row in edit_p.iterrows():
-                        if row['id']: 
+                        # Lógica Inteligente: Se tem ID, atualiza. Se não tem, insere (Cria Novo).
+                        if pd.notna(row['id']): 
                             sess.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), 
-                                {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao', ''), "id": int(row['id'])})
+                                {"i": str(row['item']), "im": str(row['imagem']), "c": float(row['custo']), "d": str(row.get('descricao', '')), "id": int(row['id'])})
+                        else:
+                            # INSERT para novos prêmios
+                            if row['item']: # Só cria se tiver nome
+                                sess.execute(text("INSERT INTO premios (item, imagem, custo, descricao) VALUES (:i, :im, :c, :d)"),
+                                    {"i": str(row['item']), "im": str(row['imagem']), "c": float(row['custo']), "d": str(row.get('descricao', ''))})
                     sess.commit()
                 st.success("Salvo!")
                 st.rerun()
@@ -695,7 +701,6 @@ def tela_admin():
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
-    # --- LAYOUT HEADER DINÂMICO ---
     if tipo == 'admin':
         cols = st.columns([3, 1, 1, 1], gap="small")
         c_banner = cols[0]
