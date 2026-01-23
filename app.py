@@ -67,7 +67,6 @@ css_comum = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
-    /* REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
@@ -391,6 +390,7 @@ def ver_detalhes_produto(item, imagem, custo, descricao):
     st.divider()
     st.info("ℹ️ **Informações de Entrega:**\nEste item será enviado para o endereço ou contato cadastrado. O prazo de processamento é de até 5 dias úteis.")
 
+# --- DIÁLOGO DE ENVIO COMPACTO (ATUALIZADO) ---
 @st.dialog("🚀 Confirmar e Processar Envios", width="large")
 def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="vendas"):
     st.write(f"Você selecionou **{len(df_selecionados)} destinatários**.")
@@ -408,20 +408,19 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
         tel = str(row['telefone'])
         if len(formatar_telefone(tel)) < 12: invalidos += 1
     if invalidos > 0:
-        st.warning(f"⚠️ Atenção: {invalidos} usuários têm números de telefone inválidos e podem não receber a mensagem.")
+        st.warning(f"⚠️ Atenção: {invalidos} usuários têm números de telefone inválidos.")
 
     if not usar_zap and not usar_sms:
-        st.error("Nenhum canal de envio selecionado. Marque WhatsApp ou SMS antes de clicar.")
+        st.error("Nenhum canal de envio selecionado.")
         return
 
-    st.warning("⚠️ **Atenção:** Ao clicar em Confirmar, o sistema iniciará o disparo. Não feche a janela até o fim.")
-    
     if st.button("CONFIRMAR E DISPARAR", type="primary", use_container_width=True):
         logs_envio = []
         progress_bar = st.progress(0)
         status_text = st.empty()
         total = len(df_selecionados)
-        log_container = st.container(height=300, border=True)
+        
+        # REMOVIDO: Container que mostrava a tabela crescendo (causava o problema de tamanho)
         
         for i, (index, row) in enumerate(df_selecionados.iterrows()):
             status_text.text(f"Processando {i+1}/{total}: {row.get('nome', '')}...")
@@ -442,9 +441,9 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                         ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos")
                     else:
                         ok, det, cod = enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos")
-                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det, "Cód": cod})
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
                 else:
-                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-"})
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
 
             if usar_sms:
                 if len(formatar_telefone(tel)) >= 12:
@@ -454,18 +453,33 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                         texto = f"Ola {nome}, saldo atualizado! Voce tem {var1} pts."
                     
                     ok, det, cod = enviar_sms(tel, texto)
-                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det, "Cód": cod})
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
                 else:
-                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-"})
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
 
             progress_bar.progress((i + 1) / total)
-            log_container.dataframe(pd.DataFrame(logs_envio), use_container_width=True, hide_index=True)
 
+        # FIM DO PROCESSO: MOSTRAR RESUMO
         progress_bar.empty()
         status_text.success("Processamento Finalizado!")
+        
+        # Calcular Métricas Rápidas
+        sucessos = len([x for x in logs_envio if "OK" in x['Status']])
+        erros = len(logs_envio) - sucessos
+        
+        c1, c2 = st.columns(2)
+        c1.metric("✅ Sucessos", sucessos)
+        c2.metric("❌ Falhas/Ignorados", erros)
+        
         registrar_log("Disparo em Massa", f"Tipo: {tipo_envio} | Qtd: {total}")
+        
+        # Log Completo escondido no Expander
+        with st.expander("📄 Ver Detalhes (Log Completo)"):
+            st.dataframe(pd.DataFrame(logs_envio), use_container_width=True)
+            
         st.download_button(label="📥 Baixar Extrato (CSV)", data=pd.DataFrame(logs_envio).to_csv(index=False).encode('utf-8'), file_name=f'log_{datetime.now().strftime("%Y%m%d_%H%M")}.csv', mime='text/csv')
-        if st.button("Fechar e Atualizar"): st.rerun()
+        
+        if st.button("Fechar Janela"): st.rerun()
 
 # --- TELAS ---
 def tela_login():
@@ -548,7 +562,9 @@ def tela_login():
                     abrir_modal_resete_senha("Primeiro Acesso")
 
 def tela_admin():
-    st.subheader("🛠️ Painel Admin")
+    c_titulo, c_refresh = st.columns([4, 1])
+    c_titulo.subheader("🛠️ Painel Admin")
+    if c_refresh.button("🔄 Atualizar"): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
         
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
     
