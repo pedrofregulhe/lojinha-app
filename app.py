@@ -584,18 +584,19 @@ def tela_admin():
             with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") 
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
-                    with conn.session as s:
-                        for i, row in edit_v.iterrows():
-                            # ATUALIZADO: Cast explícito de ID para int e limpeza de cache
-                            s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), 
-                                     {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": int(row['id'])})
-                        s.commit()
-                    # ATUALIZADO: Limpeza de cache obrigatória para ver a mudança
-                    st.cache_data.clear()
-                    registrar_log("Admin", "Editou vendas")
-                    st.success("Salvo!")
-                    time.sleep(1)
-                    st.rerun()
+                    st.cache_data.clear() # Limpeza preventiva
+                    try:
+                        with conn.session as s:
+                            for i, row in edit_v.iterrows():
+                                s.execute(text("UPDATE vendas SET codigo_vale=:c, status=:st, nome_real=:n, telefone=:t WHERE id=:id"), 
+                                         {"c": row['codigo_vale'], "st": row['status'], "n": row['nome_real'], "t": row['telefone'], "id": int(row['id'])})
+                            s.commit()
+                        registrar_log("Admin", "Editou vendas")
+                        st.success("Salvo com sucesso!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
             with c_btn_send_1:
                 if st.button("📤 Enviar Selecionados", type="primary", use_container_width=True):
                     sel = edit_v[edit_v['Enviar'] == True]
@@ -612,7 +613,7 @@ def tela_admin():
                 if st.form_submit_button("Cadastrar"):
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t)
                     if ok: 
-                        st.cache_data.clear() # Limpa cache ao cadastrar
+                        st.cache_data.clear() 
                         st.success(msg); time.sleep(1.5); st.rerun()
                     else: st.error(msg)
         
@@ -626,7 +627,7 @@ def tela_admin():
             if c_d3.button("➕ Creditar", type="primary", use_container_width=True):
                 if qtd_pontos > 0 and target_users:
                     if distribuir_pontos_multiplos(target_users, qtd_pontos): 
-                        st.cache_data.clear() # Limpa cache ao distribuir
+                        st.cache_data.clear() 
                         st.success("Creditado com sucesso!"); time.sleep(2); st.rerun()
                 else: st.warning("Selecione alguém e um valor maior que 0.")
 
@@ -637,24 +638,31 @@ def tela_admin():
             edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={
                 "Notificar": st.column_config.CheckboxColumn("Avisar?", default=False),
                 "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"),
-                "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)")
+                "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"),
+                "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff"], required=True) # SELETOR FIXO PARA EVITAR ERRO
             })
             
             st.markdown("<br>", unsafe_allow_html=True)
             c_check_zap_2, c_check_sms_2, c_btn_save_2, c_btn_send_2 = st.columns([0.8, 0.8, 1.2, 1.5])
-            with c_check_zap_2: aviso_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_saldos_tab2") # CHAVE ÚNICA TAB 2
-            with c_check_sms_2: aviso_sms = st.checkbox("SMS", value=False, key="chk_sms_saldos_tab2") # CHAVE ÚNICA TAB 2
+            with c_check_zap_2: aviso_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_saldos_tab2") 
+            with c_check_sms_2: aviso_sms = st.checkbox("SMS", value=False, key="chk_sms_saldos_tab2") 
             with c_btn_save_2:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_users"):
-                    with conn.session as sess:
-                        for i, row in edit_u.iterrows():
-                            # ATUALIZADO: Cast explícito de ID para int e limpeza de cache
-                            sess.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
-                                     {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": int(row['id'])})
-                        sess.commit()
-                    # ATUALIZADO: Limpeza de cache
                     st.cache_data.clear()
-                    registrar_log("Admin", "Editou usuários na tabela"); st.toast("Dados atualizados!", icon="✅"); time.sleep(1); st.rerun()
+                    try:
+                        with conn.session as s:
+                            for i, row in edit_u.iterrows():
+                                # Cast forçado para evitar erros de tipo
+                                s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
+                                         {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": int(row['id'])})
+                            s.commit()
+                        registrar_log("Admin", "Editou usuários na tabela")
+                        st.success("Dados atualizados!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
+
             with c_btn_send_2:
                 if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
                     sel = edit_u[edit_u['Notificar'] == True]
@@ -668,15 +676,18 @@ def tela_admin():
             column_config={"descricao": st.column_config.TextColumn("Descrição (Detalhes)", width="large")}
         )
         if st.button("Salvar Prêmios"):
-            with conn.session as sess:
-                for i, row in edit_p.iterrows():
-                    if row['id']: 
-                        # ATUALIZADO: Cast explícito de ID para int e limpeza de cache
-                        sess.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), 
-                            {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao', ''), "id": int(row['id'])})
-                sess.commit()
             st.cache_data.clear()
-            st.success("Salvo!"); st.rerun()
+            try:
+                with conn.session as sess:
+                    for i, row in edit_p.iterrows():
+                        if row['id']: 
+                            sess.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), 
+                                {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao', ''), "id": int(row['id'])})
+                    sess.commit()
+                st.success("Salvo!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao salvar prêmios: {e}")
 
     with t4:
         st.dataframe(run_query("SELECT * FROM logs ORDER BY id DESC LIMIT 50"), use_container_width=True)
