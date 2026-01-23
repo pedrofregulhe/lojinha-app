@@ -9,6 +9,7 @@ import requests
 import re
 import random
 import string
+import uuid  # Novo import para gerar tokens únicos
 
 # --- CONFIGURAÇÕES GERAIS ---
 st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
@@ -36,10 +37,8 @@ css_comum = """
     .stDeployButton { display: none; }
     .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
     
-    /* Imagens dos Prêmios */
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
     
-    /* Botão Primário (VERMELHO/LARANJA) */
     div.stButton > button[kind="primary"] { 
         background-color: #ff4b4b !important; 
         color: white !important; 
@@ -55,7 +54,6 @@ css_comum = """
 """
 
 if not st.session_state.get('logado', False):
-    # --- ESTILO TELA DE LOGIN ---
     estilo_especifico = """
     .stApp { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
@@ -89,7 +87,6 @@ if not st.session_state.get('logado', False):
     }
     """
 else:
-    # --- ESTILO TELA PRINCIPAL (LOGADO) ---
     estilo_especifico = """
     .stApp { background-color: #f4f8fb; }
     
@@ -125,7 +122,7 @@ else:
 
 st.markdown(f"<style>{css_comum} {estilo_especifico}</style>", unsafe_allow_html=True)
 
-# --- FUNÇÕES ---
+# --- FUNÇÕES BÁSICAS ---
 def verificar_senha_hash(senha_digitada, hash_armazenado):
     try:
         if not hash_armazenado.startswith("$2b$"): return senha_digitada == hash_armazenado
@@ -153,40 +150,65 @@ def formatar_telefone(tel_bruto):
     texto = str(tel_bruto).strip()
     if texto.endswith(".0"): texto = texto[:-2]
     apenas_numeros = re.sub(r'\D', '', texto)
-    if 10 <= len(apenas_numeros) <= 11: 
-        apenas_numeros = "55" + apenas_numeros
+    if 10 <= len(apenas_numeros) <= 11: apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
+
+# --- GERENCIAMENTO DE SESSÃO (AUTO LOGIN) ---
+def criar_sessao_persistente(usuario_id):
+    # Gera um token único
+    token = str(uuid.uuid4())
+    # Salva no banco
+    with conn.session as s:
+        s.execute(text("UPDATE usuarios SET token_sessao = :t WHERE id = :id"), {"t": token, "id": usuario_id})
+        s.commit()
+    # Salva na URL do navegador
+    st.query_params["sessao"] = token
+
+def verificar_sessao_automatica():
+    # Se já estiver logado, não faz nada
+    if st.session_state.get('logado', False): return
+
+    # Tenta pegar o token da URL
+    token_url = st.query_params.get("sessao")
+    if token_url:
+        df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t", {"t": token_url})
+        if not df.empty:
+            # Token válido! Loga o usuário automaticamente
+            row = df.iloc[0]
+            st.session_state.update({
+                'logado': True,
+                'usuario_cod': row['usuario'],
+                'usuario_nome': row['nome'],
+                'tipo_usuario': str(row['tipo']).lower().strip(),
+                'saldo_atual': float(row['saldo'])
+            })
+            # Força rerun para aplicar o estilo correto
+            st.rerun()
+
+def realizar_logout():
+    # Limpa token do banco (para invalidar links antigos)
+    if st.session_state.get('usuario_cod'):
+        with conn.session as s:
+            s.execute(text("UPDATE usuarios SET token_sessao = NULL WHERE usuario = :u"), {"u": st.session_state.usuario_cod})
+            s.commit()
+    
+    # Limpa sessão local e URL
+    st.query_params.clear()
+    st.session_state.clear()
+    st.rerun()
 
 # --- FUNÇÕES DE ENVIO ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
-        
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
-        
         if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
-
-        payload = {
-            "messages": [
-                {
-                    "from": "InfoSMS", 
-                    "destinations": [{"to": tel_final}],
-                    "text": mensagem_texto
-                }
-            ]
-        }
-        headers = {
-            "Authorization": f"App {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
+        payload = { "messages": [ { "from": "InfoSMS", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
+        headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
-        
-        if response.status_code not in [200, 201]: 
-            return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
-            
+        if response.status_code not in [200, 201]: return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
         return True, "SMS Enviado", str(response.status_code)
     except Exception as e: return False, f"Erro SMS Exception: {str(e)}", "EXCEPTION"
 
@@ -219,11 +241,12 @@ def registrar_log(acao, detalhes):
 # --- LÓGICA ---
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
-    if df.empty: return False, None, None, 0, None
+    if df.empty: return False, None, None, 0, None, None
     linha = df.iloc[0]
     if verificar_senha_hash(pass_input.strip(), linha['senha']):
-        return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone'])
-    return False, None, None, 0, None
+        # Retorna ID também agora
+        return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone']), int(linha['id'])
+    return False, None, None, 0, None, None
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate):
     try:
@@ -327,21 +350,15 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
             if salvar_venda(usuario_cod, item_nome, custo, email, formatar_telefone(tel)):
                 st.balloons(); st.success("Sucesso!"); time.sleep(2); st.rerun()
 
-# --- NOVO MODAL: DETALHES DO PRODUTO (ATUALIZADO) ---
 @st.dialog("🔍 Detalhes do Produto")
 def ver_detalhes_produto(item, imagem, custo, descricao):
     st.image(processar_link_imagem(imagem), use_container_width=True)
     st.markdown(f"## {item}")
     st.markdown(f"#### 💎 Valor: **{custo} pts**")
-    
     st.divider()
     st.write("### 📝 Descrição")
-    # Se não tiver descrição no banco, mostra um texto padrão
-    if descricao and str(descricao).lower() != "none" and len(str(descricao)) > 3:
-        st.write(descricao)
-    else:
-        st.caption("Sem descrição adicional para este item.")
-        
+    if descricao and str(descricao).lower() != "none" and len(str(descricao)) > 3: st.write(descricao)
+    else: st.caption("Sem descrição adicional para este item.")
     st.divider()
     st.info("ℹ️ **Informações de Entrega:**\nEste item será enviado para o endereço ou contato cadastrado. O prazo de processamento é de até 5 dias úteis.")
 
@@ -376,7 +393,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                 except: var1 = "0"
                 var2 = ""
 
-            # WhatsApp
             if usar_zap:
                 if len(formatar_telefone(tel)) >= 12:
                     if tipo_envio == "vendas":
@@ -387,7 +403,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                 else:
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-"})
 
-            # SMS
             if usar_sms:
                 if len(formatar_telefone(tel)) >= 12:
                     if tipo_envio == "vendas":
@@ -437,6 +452,8 @@ def tela_login():
                             'em_verificacao_2fa': False,
                             'dados_usuario_temp': {}
                         })
+                        # CHAMA A FUNÇÃO DE CRIAR SESSÃO NO BANCO + URL
+                        criar_sessao_persistente(dados['id'])
                         st.rerun()
                     else:
                         st.error("Código incorreto. Tente novamente.")
@@ -462,7 +479,7 @@ def tela_login():
                 st.write("") 
                 
                 if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
-                    ok, n, t, sld, tel_completo = validar_login(u, s)
+                    ok, n, t, sld, tel_completo, uid = validar_login(u, s)
                     if ok:
                         codigo = str(random.randint(100000, 999999))
                         msg_2fa = f"Seu codigo de acesso Culli: {codigo}"
@@ -471,7 +488,7 @@ def tela_login():
                         if enviou:
                             st.session_state.em_verificacao_2fa = True
                             st.session_state.codigo_2fa_esperado = codigo
-                            st.session_state.dados_usuario_temp = {'usuario': u, 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo}
+                            st.session_state.dados_usuario_temp = {'usuario': u, 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo, 'id': uid}
                             st.rerun()
                         else:
                             st.error(f"Erro no envio do SMS: {info}. Verifique se o telefone está correto no cadastro.")
@@ -581,29 +598,17 @@ def tela_admin():
                     else: processar_envios_dialog(sel, aviso_zap, aviso_sms, tipo_envio="usuarios")
 
     with t3:
-        # ATUALIZADO: Carrega coluna 'descricao'
         df_p = run_query("SELECT * FROM premios ORDER BY id")
-        
-        # Data Editor agora permite editar a descrição
         edit_p = st.data_editor(
-            df_p, 
-            use_container_width=True, 
-            num_rows="dynamic", 
-            key="ed_p",
-            column_config={
-                "descricao": st.column_config.TextColumn("Descrição (Detalhes)", width="large")
-            }
+            df_p, use_container_width=True, num_rows="dynamic", key="ed_p",
+            column_config={"descricao": st.column_config.TextColumn("Descrição (Detalhes)", width="large")}
         )
-        
         if st.button("Salvar Prêmios"):
             with conn.session as sess:
                 for i, row in edit_p.iterrows():
-                    # ATUALIZADO: Salva coluna 'descricao'
                     if row['id']: 
-                        sess.execute(
-                            text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), 
-                            {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao', ''), "id": row['id']}
-                        )
+                        sess.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), 
+                            {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao', ''), "id": row['id']})
                 sess.commit()
             st.success("Salvo!"); st.rerun()
 
@@ -616,14 +621,13 @@ def tela_principal():
     with c_info: st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     with c_acoes:
         if st.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
-        if st.button("Sair", type="primary", use_container_width=True): st.session_state.logado=False; st.rerun()
+        if st.button("Sair", type="primary", use_container_width=True): realizar_logout()
     st.divider()
     
     if tipo == 'admin': tela_admin()
     else:
         t1, t2, t3 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates", "🏆 Ranking"])
         with t1:
-            # ATUALIZADO: Busca também 'descricao'
             df_p = run_query("SELECT * FROM premios ORDER BY id") 
             if not df_p.empty:
                 cols = st.columns(4)
@@ -635,11 +639,9 @@ def tela_principal():
                             st.markdown(f"**{row['item']}**"); cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             
-                            # Layout Botões: Lupa + Resgatar
                             c_detalhe, c_resgate = st.columns([1, 2])
                             with c_detalhe:
                                 if st.button("🔍", key=f"det_{row['id']}", help="Ver Detalhes"):
-                                    # Chama Modal passando a descrição
                                     ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
                             with c_resgate:
                                 if sld >= row['custo']:
@@ -685,5 +687,6 @@ def tela_principal():
             else: st.info("Ranking ainda vazio.")
 
 if __name__ == "__main__":
+    verificar_sessao_automatica() # <--- O SEGREDO ESTÁ AQUI
     if st.session_state.logado: tela_principal()
     else: tela_login()
