@@ -46,50 +46,60 @@ css_comum = """
         height: 100%;
     }
 
-    /* --- ESTILO PADRÃO (HEADER) - BOTÕES GRANDES (100px) --- */
-    
-    /* Botão Primário (Azul) */
+    /* --- BOTÕES GERAIS (LOGIN, HEADER) --- */
     div.stButton > button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
         border-radius: 12px; 
         border: none; 
-        height: 100px !important; /* Altura padrão Header */
+        height: 55px; 
         font-weight: 600; 
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        transition: all 0.2s ease;
-    }
-    div.stButton > button[kind="primary"]:hover {
-        background-color: #0052a3 !important;
-        transform: translateY(-2px);
     }
     
-    /* Botão Secundário (Branco) */
     div.stButton > button[kind="secondary"] { 
         background-color: #ffffff; 
         color: #003366; 
         border-radius: 12px; 
         border: 2px solid #eef2f6; 
-        height: 100px !important; /* Altura padrão Header */
+        height: 100px; /* Botões do Header GRANDES */
         font-weight: 600; 
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
-        transition: all 0.2s ease;
-    }
-    div.stButton > button[kind="secondary"]:hover { 
-        border-color: #003366; 
-        color: #003366; 
-        background-color: #ffffff;
-        transform: translateY(-2px);
     }
 
-    /* --- OVERRIDE: BOTÕES DENTRO DAS ABAS (CARDS) - PEQUENOS (50px) --- */
-    /* Essa regra força qualquer botão dentro das abas a ter 50px */
+    /* --- REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) --- */
+    
+    /* 1. Força altura igual para TODOS os botões nas abas */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
         border-radius: 8px !important;
+        box-shadow: none !important;
+        transition: all 0.2s ease;
+    }
+
+    /* 2. Estilo do Botão RESGATAR (Primary na Vitrine) -> Fundo Transparente, Letra Azul */
+    [data-testid="stTabs"] button[kind="primary"] {
+        background-color: transparent !important;
+        border: 2px solid #0066cc !important;
+        color: #0066cc !important;
+    }
+    [data-testid="stTabs"] button[kind="primary"]:hover {
+        background-color: #e6f0ff !important; /* Azul bem clarinho ao passar o mouse */
+        transform: translateY(-2px);
+    }
+
+    /* 3. Estilo do Botão DETALHES (Secondary na Vitrine) -> Cinza Discreto */
+    [data-testid="stTabs"] button[kind="secondary"] {
+        background-color: transparent !important;
+        border: 2px solid #e0e0e0 !important;
+        color: #666 !important;
+    }
+    [data-testid="stTabs"] button[kind="secondary"]:hover {
+        border-color: #999 !important;
+        color: #333 !important;
     }
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
@@ -149,7 +159,7 @@ else:
         display: flex; 
         flex-direction: column; 
         justify-content: center; 
-        height: 100px; /* Alinhado com os botões */
+        height: 100px; 
     }
     """
 
@@ -669,12 +679,12 @@ def tela_principal():
                             # --- BOTÕES LADO A LADO ---
                             c_detalhe, c_resgate = st.columns([1, 2])
                             with c_detalhe:
-                                # Aqui ele entra na regra de CSS "stTabs" e fica pequeno (50px)
-                                if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary"):
+                                # Importante: Ambos com use_container_width=True para ficarem "cheios" dentro de suas colunas
+                                if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True):
                                     ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
                             with c_resgate:
                                 if sld >= row['custo']:
-                                    if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True, type="primary"):
+                                    if st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True):
                                         confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
