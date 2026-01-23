@@ -28,7 +28,7 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO ---
+# --- CSS DINÂMICO (AGRESSIVO) ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
     html, body, [class*="css"] { font-family: 'Poppins', sans-serif; }
@@ -46,66 +46,79 @@ css_comum = """
         height: 100%;
     }
 
-    /* --- BOTÕES GERAIS (LOGIN, HEADER) --- */
-    div.stButton > button[kind="primary"] { 
-        background-color: #0066cc !important; 
-        color: white !important; 
-        border-radius: 12px; 
-        border: none; 
-        height: 55px; 
-        font-weight: 600; 
-        width: 100%; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
+    /* ============================================================ */
+    /* 1. ESTILO PADRÃO (AFETA O CABEÇALHO/HEADER)                  */
+    /* ============================================================ */
     
+    /* Botão Secundário (Branco) - No Header fica GRANDE (100px) */
     div.stButton > button[kind="secondary"] { 
-        background-color: #ffffff; 
-        color: #003366; 
-        border-radius: 12px; 
-        border: 2px solid #eef2f6; 
-        height: 100px; /* Botões do Header GRANDES */
-        font-weight: 600; 
-        width: 100%; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
+        background-color: #ffffff !important; 
+        color: #003366 !important; 
+        border-radius: 12px !important; 
+        border: 2px solid #eef2f6 !important; 
+        height: 100px !important; /* FORÇA ALTURA DO HEADER */
+        font-weight: 600 !important; 
+        font-size: 16px !important;
+        width: 100% !important; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important; 
+    }
+    div.stButton > button[kind="secondary"]:hover { 
+        border-color: #003366 !important; 
+        background-color: #f9fafb !important;
     }
 
-    /* --- REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) --- */
+    /* ============================================================ */
+    /* 2. ESTILO ESPECÍFICO PARA DENTRO DAS ABAS (VITRINE)          */
+    /* ============================================================ */
     
-    /* 1. Força altura igual para TODOS os botões nas abas */
+    /* Reseta a altura para 50px para QUALQUER botão dentro das abas */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
         border-radius: 8px !important;
-        box-shadow: none !important;
-        transition: all 0.2s ease;
+        font-size: 14px !important;
     }
 
-    /* 2. Estilo do Botão RESGATAR (Primary na Vitrine) -> Fundo Transparente, Letra Azul */
+    /* Botão RESGATAR (Primary na Vitrine) -> ESTILO OUTLINE (Transparente com Borda Azul) */
     [data-testid="stTabs"] button[kind="primary"] {
         background-color: transparent !important;
         border: 2px solid #0066cc !important;
         color: #0066cc !important;
+        box-shadow: none !important;
     }
     [data-testid="stTabs"] button[kind="primary"]:hover {
-        background-color: #e6f0ff !important; /* Azul bem clarinho ao passar o mouse */
+        background-color: #e6f0ff !important; /* Azul clarinho no hover */
+        border-color: #0052a3 !important;
+        color: #0052a3 !important;
         transform: translateY(-2px);
     }
 
-    /* 3. Estilo do Botão DETALHES (Secondary na Vitrine) -> Cinza Discreto */
+    /* Botão DETALHES (Secondary na Vitrine) -> Cinza Discreto */
     [data-testid="stTabs"] button[kind="secondary"] {
         background-color: transparent !important;
-        border: 2px solid #e0e0e0 !important;
-        color: #666 !important;
+        border: 1px solid #e0e0e0 !important;
+        color: #555 !important;
+        height: 50px !important; /* Garante que sobrescreve o 100px do header */
+        box-shadow: none !important;
     }
     [data-testid="stTabs"] button[kind="secondary"]:hover {
         border-color: #999 !important;
         color: #333 !important;
+        background-color: #f5f5f5 !important;
+    }
+
+    /* Botões do Modal/Admin (Primary) - Mantém Azul Sólido */
+    div.stButton > button[kind="primary"] { 
+        background-color: #0066cc; 
+        color: white; 
+        border: none;
     }
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
 """
 
 if not st.session_state.get('logado', False):
+    # CSS ESPECÍFICO LOGIN (Reseta os botões grandes para links pequenos)
     estilo_especifico = """
     .stApp { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
@@ -122,26 +135,29 @@ if not st.session_state.get('logado', False):
         border: none; 
     }
     
-    /* Reset do estilo secundário APENAS para a tela de login (links pequenos) */
+    /* Reset total para os botões de link na tela de login */
     div.stButton > button[kind="secondary"] { 
         background-color: transparent !important; 
         color: white !important; 
         border: 1px solid rgba(255,255,255,0.3) !important; 
         border-radius: 20px !important;
         height: auto !important; 
-        font-weight: 400; 
-        font-size: 0.8rem;
+        font-weight: 400 !important; 
+        font-size: 0.8rem !important;
         box-shadow: none !important;
+        margin-top: 5px;
     }
     div.stButton > button[kind="secondary"]:hover { 
         background-color: rgba(255,255,255,0.1) !important;
         border-color: white !important;
-        transform: none !important;
     }
     
-    /* Corrige o botão ENTRAR para não ficar gigante no login */
+    /* Botão Entrar Normal */
     [data-testid="stForm"] div.stButton > button[kind="primary"] {
+        background-color: #0066cc !important;
+        color: white !important;
         height: 50px !important;
+        border-radius: 8px !important;
     }
     """
 else:
@@ -643,19 +659,19 @@ def tela_admin():
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
-    # --- LAYOUT NOVO: 3 COLUNAS ALINHADAS ---
+    # --- LAYOUT 3 COLUNAS ALINHADAS ---
     c_banner, c_senha, c_sair = st.columns([3, 1, 1], gap="medium")
     
     with c_banner:
         st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     with c_senha:
-        # Botão "Secundário" com altura forçada de 100px pelo CSS global
+        # Botão Secundário (Alterar Senha)
         if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): 
             abrir_modal_senha(u_cod)
             
     with c_sair:
-        # Texto alterado para "Encerrar Sessão"
+        # Botão Secundário (Encerrar Sessão)
         if st.button("❌ Encerrar Sessão", type="secondary", use_container_width=True): 
             realizar_logout()
             
@@ -676,15 +692,15 @@ def tela_principal():
                             st.markdown(f"**{row['item']}**"); cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             
-                            # --- BOTÕES LADO A LADO ---
-                            c_detalhe, c_resgate = st.columns([1, 2])
+                            # --- BOTÕES ALINHADOS COM LARGURA IGUAL ---
+                            c_detalhe, c_resgate = st.columns([1, 1]) # Colunas iguais [1,1] para botões do mesmo tamanho
                             with c_detalhe:
-                                # Importante: Ambos com use_container_width=True para ficarem "cheios" dentro de suas colunas
                                 if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True):
                                     ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
                             with c_resgate:
                                 if sld >= row['custo']:
-                                    if st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True):
+                                    # Botão Primary (que o CSS transforma em Outline dentro das Tabs)
+                                    if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True, type="primary"):
                                         confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
