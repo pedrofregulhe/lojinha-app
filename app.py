@@ -23,7 +23,7 @@ if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
 if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
-# --- CSS DINÂMICO (Variável conforme estado de Login) ---
+# --- CSS DINÂMICO ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
     html, body, [class*="css"] { font-family: 'Poppins', sans-serif; }
@@ -34,7 +34,7 @@ css_comum = """
     /* Imagens dos Prêmios */
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
     
-    /* Botão Primário (VERMELHO/LARANJA) - Usado para Entrar, Sair, Confirmar */
+    /* Botão Primário (VERMELHO/LARANJA) */
     div.stButton > button[kind="primary"] { 
         background-color: #ff4b4b !important; 
         color: white !important; 
@@ -59,7 +59,6 @@ if not st.session_state.get('logado', False):
     }
     @keyframes gradient { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
     
-    /* Estilo do Formulário de Login (Caixa Branca) */
     [data-testid="stForm"] { 
         background-color: #ffffff; 
         padding: 40px; 
@@ -68,25 +67,21 @@ if not st.session_state.get('logado', False):
         border: none; 
     }
     
-    /* TRANSFORMANDO O BOTÃO SECUNDÁRIO EM LINK (Apenas no Login) */
+    /* Botões de Link (Secundários no Login) */
     div.stButton > button[kind="secondary"] { 
         background-color: transparent !important; 
-        color: white !important; /* Texto Branco para destacar no fundo azul */
-        border: none !important; 
-        box-shadow: none !important;
+        color: white !important; 
+        border: 1px solid rgba(255,255,255,0.3) !important; 
+        border-radius: 20px !important;
         height: auto !important; 
         font-weight: 400; 
+        font-size: 0.8rem;
         width: 100%; 
-        text-decoration: underline;
         margin-top: 5px;
     }
     div.stButton > button[kind="secondary"]:hover { 
-        color: #ff4b4b !important; 
-        background-color: transparent !important;
-    }
-    div.stButton > button[kind="secondary"]:focus:not(:active) {
-        border-color: transparent !important;
-        color: white !important;
+        background-color: rgba(255,255,255,0.1) !important;
+        border-color: white !important;
     }
     """
 else:
@@ -94,7 +89,6 @@ else:
     estilo_especifico = """
     .stApp { background-color: #f4f8fb; }
     
-    /* Header do Usuário Logado */
     .header-style { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400%; 
@@ -109,7 +103,6 @@ else:
         height: 100%; 
     }
     
-    /* Botão Secundário NORMAL (Caixa Branca) - Para 'Alterar Senha' */
     div.stButton > button[kind="secondary"] { 
         background-color: #ffffff; 
         color: #003366; 
@@ -165,20 +158,33 @@ def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
+        
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
+        
         if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
-        
-        payload = { "messages": [ { "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
-        headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
-        
+
+        payload = {
+            "messages": [
+                {
+                    "from": "InfoSMS", 
+                    "destinations": [{"to": tel_final}],
+                    "text": mensagem_texto
+                }
+            ]
+        }
+        headers = {
+            "Authorization": f"App {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
         response = requests.post(url, json=payload, headers=headers)
         
         if response.status_code not in [200, 201]: 
-            return False, f"Erro API: {response.text}", str(response.status_code)
+            return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
             
-        return True, "Enviado com Sucesso", str(response.status_code)
-    except Exception as e: return False, str(e), "EXCEPTION"
+        return True, "SMS Enviado", str(response.status_code)
+    except Exception as e: return False, f"Erro SMS Exception: {str(e)}", "EXCEPTION"
 
 def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
@@ -187,16 +193,11 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envi
         sender = st.secrets["INFOBIP_SENDER"]
         url = f"{base_url}/whatsapp/1/message/template"
         tel_final = formatar_telefone(telefone)
-        if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
-        
+        if len(tel_final) < 12: return False, f"Número inválido: {tel_final}", "CLIENT_ERROR"
         payload = { "messages": [ { "from": sender, "to": tel_final, "content": { "templateName": nome_template, "templateData": { "body": { "placeholders": parametros } }, "language": "pt_BR" } } ] }
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
-        
         response = requests.post(url, json=payload, headers=headers)
-        
-        if response.status_code not in [200, 201]: 
-            return False, f"Erro API: {response.text}", str(response.status_code)
-            
+        if response.status_code not in [200, 201]: return False, f"Erro API {response.status_code}: {response.text}", str(response.status_code)
         return True, "Enviado com Sucesso", str(response.status_code)
     except Exception as e: return False, f"Erro Conexão: {str(e)}", "EXCEPTION"
 
@@ -211,7 +212,7 @@ def registrar_log(acao, detalhes):
         run_transaction("INSERT INTO logs (data, responsavel, acao, detalhes) VALUES (NOW(), :resp, :acao, :det)", {"resp": resp, "acao": acao, "det": detalhes})
     except Exception as e: print(f"Erro log: {e}")
 
-# --- LÓGICA DE NEGÓCIO ---
+# --- LÓGICA ---
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
     if df.empty: return False, None, None, 0
@@ -264,7 +265,7 @@ def distribuir_pontos_multiplos(lista_usuarios, quantidade):
         return True
     except Exception as e: return False
 
-# --- MODAIS E DIÁLOGOS ---
+# --- MODAIS ---
 @st.dialog("🔐 Alterar Senha")
 def abrir_modal_senha(usuario_cod):
     n = st.text_input("Nova Senha", type="password"); c = st.text_input("Confirmar", type="password")
@@ -274,18 +275,23 @@ def abrir_modal_senha(usuario_cod):
             registrar_log("Senha Alterada", f"Usuário: {usuario_cod}")
             st.success("Sucesso!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
 
-@st.dialog("🔑 Recuperar Senha")
-def abrir_modal_esqueci_senha():
-    st.write("Digite seu usuário. Se ele existir, enviaremos uma nova senha via SMS para o telefone cadastrado.")
-    user_input = st.text_input("Usuário Cadastrado")
+# --- FUNÇÃO GENÉRICA PARA RESET/PRIMEIRO ACESSO ---
+@st.dialog("🔑 Gerar Senha Provisória")
+def abrir_modal_resete_senha(titulo_janela="Recuperar Senha"):
+    st.write(f"**{titulo_janela}**")
+    st.write("Digite o nome de usuário (login). Se ele existir, enviaremos uma senha provisória via SMS para o telefone cadastrado.")
     
-    if st.button("Gerar e Enviar Nova Senha", type="primary"):
+    user_input = st.text_input("Usuário (Login)")
+    
+    if st.button("Gerar e Enviar SMS", type="primary"):
         df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
         if df.empty:
             st.error("Usuário não encontrado.")
         else:
             row = df.iloc[0]
             tel = str(row['telefone'])
+            
+            # Validação rápida de telefone
             if len(formatar_telefone(tel)) < 12:
                 st.error("O telefone cadastrado para este usuário parece inválido. Contate o suporte.")
                 return
@@ -298,17 +304,15 @@ def abrir_modal_esqueci_senha():
                 s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": user_id})
                 s.commit()
             
-            msg = f"Lojinha Culli: Sua nova senha provisoria e: {nova_senha}"
+            msg = f"Sua senha provisoria e: {nova_senha}. Acesse e troque."
             ok, det, cod = enviar_sms(tel, msg)
             
             if ok:
-                st.success(f"Sucesso! Nova senha enviada para o telefone final {tel[-4:]}.")
-                registrar_log("Recuperação de Senha", f"Usuário: {row['usuario']}")
-                time.sleep(4)
-                st.rerun()
+                st.success(f"Sucesso! Senha enviada para o final ...{tel[-4:]}.")
+                registrar_log(titulo_janela, f"Usuário: {row['usuario']}")
+                time.sleep(4); st.rerun()
             else:
                 st.error(f"Erro ao enviar SMS: {det}")
-
 
 @st.dialog("🎁 Confirmar Resgate")
 def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
@@ -371,7 +375,7 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                     if tipo_envio == "vendas":
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
-                        texto = f"Lojinha Culli: Ola {nome}, sua pontuacao foi atualizada e seu saldo atual e de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
+                        texto = f"Ola {nome}, saldo atualizado! Voce tem {var1} pts."
                     
                     ok, det, cod = enviar_sms(tel, texto)
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det, "Cód": cod})
@@ -392,12 +396,12 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
 def tela_login():
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
-        st.write("") # Pequeno espaçamento
+        st.write("") 
         with st.form("f_login"):
             st.markdown("""
                 <div style="text-align: center; margin-bottom: 20px;">
                     <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: 10px;">
-                        Lojinha Culli's
+                        LOJINHA CULLI
                     </h1>
                     <p style="color: #555555; font-size: 0.9rem; line-height: 1.4; font-weight: 400; margin: 0;">
                         Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
@@ -405,23 +409,31 @@ def tela_login():
                 </div>
             """, unsafe_allow_html=True)
             u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
-            st.write("") # Espaço mínimo
+            st.write("") 
             
             if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
                 ok, n, t, sld = validar_login(u, s)
                 if ok: st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld}); st.rerun()
                 else: st.toast("Login inválido", icon="❌")
         
-        # Botão com visual de LINK abaixo do formulário
-        if st.button("Esqueci minha senha", type="secondary", use_container_width=True):
-            abrir_modal_esqueci_senha()
+        # --- AQUI ESTÁ A NOVIDADE: BOTÕES DE ACESSO ---
+        st.write("")
+        c_esqueceu, c_primeiro = st.columns(2)
+        
+        with c_esqueceu:
+            if st.button("Esqueci a senha", type="secondary", use_container_width=True):
+                abrir_modal_resete_senha("Recuperar Senha")
+        
+        with c_primeiro:
+            if st.button("Primeiro Acesso?", type="secondary", use_container_width=True):
+                abrir_modal_resete_senha("Primeiro Acesso")
 
 def tela_admin():
     c_titulo, c_refresh = st.columns([4, 1])
     c_titulo.subheader("🛠️ Painel Admin")
     if c_refresh.button("🔄 Atualizar"): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
         
-    t1, t2, t3, t4 = st.tabs(["📊Resgates & Vouchers", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
+    t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
     
     with t1:
         df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
@@ -483,7 +495,6 @@ def tela_admin():
                 else: st.warning("Selecione alguém e um valor maior que 0.")
 
         st.divider()
-        # --- TÍTULO REMOVIDO CONFORME PEDIDO ---
         
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
@@ -504,7 +515,7 @@ def tela_admin():
                     with conn.session as sess:
                         for i, row in edit_u.iterrows():
                             sess.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
-                                         {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": row['id']})
+                                     {"s": row['saldo'], "ph": row['pontos_historico'], "t": row['telefone'], "n": row['nome'], "tp": row['tipo'], "id": row['id']})
                         sess.commit()
                     registrar_log("Admin", "Editou usuários na tabela"); st.toast("Dados atualizados!", icon="✅"); time.sleep(1); st.rerun()
             with c_btn_send_2:
