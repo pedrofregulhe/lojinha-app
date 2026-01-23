@@ -38,38 +38,57 @@ css_comum = """
     
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
     
-    /* MUDANÇA AQUI: Botão Primário agora é AZUL (#0066cc) */
+    /* ALINHAMENTO VERTICAL DAS COLUNAS (CENTRALIZAR BOTÕES COM BANNER) */
+    [data-testid="column"] {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        height: 100%;
+    }
+
+    /* BOTÃO PRIMÁRIO (AZUL CULLIGAN) */
     div.stButton > button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
-        border-radius: 8px; 
+        border-radius: 12px; 
         border: none; 
-        height: 45px; 
+        height: 55px; /* Altura maior para o botão de ação */
         font-weight: 600; 
         width: 100%; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transition: all 0.2s ease;
     }
     div.stButton > button[kind="primary"]:hover {
         background-color: #0052a3 !important;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
     }
     
-    /* Botão Secundário (Detalhes, Cancelar) */
+    /* BOTÃO SECUNDÁRIO (BRANCO/BLOCO) - Usado no Topo */
     div.stButton > button[kind="secondary"] { 
         background-color: #ffffff; 
         color: #003366; 
-        border-radius: 8px; 
-        border: 1px solid #d1d5db; 
-        height: 45px; 
+        border-radius: 12px; 
+        border: 2px solid #eef2f6; /* Borda sutil */
+        height: 80px; /* MESMA ALTURA VISUAL DO BANNER (aprox) */
         font-weight: 600; 
         width: 100%; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); /* Sombra leve */
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1.2;
     }
     div.stButton > button[kind="secondary"]:hover { 
         border-color: #003366; 
         color: #003366; 
-        background-color: #f9fafb;
+        background-color: #ffffff;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 15px rgba(0,0,0,0.1);
     }
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
-    [data-testid="column"] { display: flex; flex-direction: column; justify-content: center; }
 """
 
 if not st.session_state.get('logado', False):
@@ -88,7 +107,8 @@ if not st.session_state.get('logado', False):
         box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
         border: none; 
     }
-    /* Estilo especial para links na tela de login */
+    
+    /* Reset do estilo secundário APENAS para a tela de login (links) */
     div.stButton > button[kind="secondary"] { 
         background-color: transparent !important; 
         color: white !important; 
@@ -97,12 +117,12 @@ if not st.session_state.get('logado', False):
         height: auto !important; 
         font-weight: 400; 
         font-size: 0.8rem;
-        width: 100%; 
-        margin-top: 5px;
+        box-shadow: none !important;
     }
     div.stButton > button[kind="secondary"]:hover { 
         background-color: rgba(255,255,255,0.1) !important;
         border-color: white !important;
+        transform: none !important;
     }
     """
 else:
@@ -113,14 +133,14 @@ else:
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400%; 
         animation: gradient 10s ease infinite; 
-        padding: 25px 30px; 
+        padding: 15px 25px; /* Padding ajustado para alinhar altura */
         border-radius: 15px; 
         color: white; 
         box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
         display: flex; 
         flex-direction: column; 
         justify-content: center; 
-        height: 100%; 
+        min-height: 80px; /* Garante altura mínima igual aos botões */
     }
     """
 
@@ -288,7 +308,7 @@ def distribuir_pontos_multiplos(lista_usuarios, quantidade):
 @st.dialog("🔐 Alterar Senha")
 def abrir_modal_senha(usuario_cod):
     n = st.text_input("Nova Senha", type="password"); c = st.text_input("Confirmar", type="password")
-    if st.button("Salvar Senha"):
+    if st.button("Salvar Senha", type="primary"):
         if n == c and n:
             run_transaction("UPDATE usuarios SET senha = :s WHERE LOWER(usuario) = LOWER(:u)", {"s": gerar_hash(n), "u": usuario_cod})
             registrar_log("Senha Alterada", f"Usuário: {usuario_cod}")
@@ -603,11 +623,23 @@ def tela_admin():
 
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
-    c_info, c_acoes = st.columns([3, 1])
-    with c_info: st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
-    with c_acoes:
-        if st.button("Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
-        if st.button("Sair", type="primary", use_container_width=True): realizar_logout()
+    
+    # --- LAYOUT NOVO: 3 COLUNAS (BANNER + BOTÕES) ---
+    c_banner, c_senha, c_sair = st.columns([3, 1, 1], gap="medium")
+    
+    with c_banner:
+        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+    
+    with c_senha:
+        # Usamos Secondary mas estilizado via CSS para ter altura de bloco
+        if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): 
+            abrir_modal_senha(u_cod)
+            
+    with c_sair:
+        # Usamos Secondary também para consistência visual
+        if st.button("❌ Sair", type="secondary", use_container_width=True): 
+            realizar_logout()
+            
     st.divider()
     
     if tipo == 'admin': tela_admin()
