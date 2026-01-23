@@ -9,7 +9,7 @@ import requests
 import re
 import random
 import string
-import uuid  # Novo import para gerar tokens únicos
+import uuid
 
 # --- CONFIGURAÇÕES GERAIS ---
 st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
@@ -24,7 +24,6 @@ if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
 if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
-# Novas variáveis para o 2FA
 if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificacao_2fa'] = False
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
@@ -39,8 +38,9 @@ css_comum = """
     
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
     
+    /* MUDANÇA AQUI: Botão Primário agora é AZUL (#0066cc) */
     div.stButton > button[kind="primary"] { 
-        background-color: #ff4b4b !important; 
+        background-color: #0066cc !important; 
         color: white !important; 
         border-radius: 8px; 
         border: none; 
@@ -48,7 +48,26 @@ css_comum = """
         font-weight: 600; 
         width: 100%; 
     }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #0052a3 !important;
+    }
     
+    /* Botão Secundário (Detalhes, Cancelar) */
+    div.stButton > button[kind="secondary"] { 
+        background-color: #ffffff; 
+        color: #003366; 
+        border-radius: 8px; 
+        border: 1px solid #d1d5db; 
+        height: 45px; 
+        font-weight: 600; 
+        width: 100%; 
+    }
+    div.stButton > button[kind="secondary"]:hover { 
+        border-color: #003366; 
+        color: #003366; 
+        background-color: #f9fafb;
+    }
+
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
     [data-testid="column"] { display: flex; flex-direction: column; justify-content: center; }
 """
@@ -69,7 +88,7 @@ if not st.session_state.get('logado', False):
         box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
         border: none; 
     }
-    
+    /* Estilo especial para links na tela de login */
     div.stButton > button[kind="secondary"] { 
         background-color: transparent !important; 
         color: white !important; 
@@ -102,21 +121,6 @@ else:
         flex-direction: column; 
         justify-content: center; 
         height: 100%; 
-    }
-    
-    div.stButton > button[kind="secondary"] { 
-        background-color: #ffffff; 
-        color: #003366; 
-        border-radius: 8px; 
-        border: 1px solid #d1d5db; 
-        height: 45px; 
-        font-weight: 600; 
-        width: 100%; 
-    }
-    div.stButton > button[kind="secondary"]:hover { 
-        border-color: #003366; 
-        color: #003366; 
-        background-color: #f9fafb;
     }
     """
 
@@ -155,25 +159,18 @@ def formatar_telefone(tel_bruto):
 
 # --- GERENCIAMENTO DE SESSÃO (AUTO LOGIN) ---
 def criar_sessao_persistente(usuario_id):
-    # Gera um token único
     token = str(uuid.uuid4())
-    # Salva no banco
     with conn.session as s:
         s.execute(text("UPDATE usuarios SET token_sessao = :t WHERE id = :id"), {"t": token, "id": usuario_id})
         s.commit()
-    # Salva na URL do navegador
     st.query_params["sessao"] = token
 
 def verificar_sessao_automatica():
-    # Se já estiver logado, não faz nada
     if st.session_state.get('logado', False): return
-
-    # Tenta pegar o token da URL
     token_url = st.query_params.get("sessao")
     if token_url:
         df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t", {"t": token_url})
         if not df.empty:
-            # Token válido! Loga o usuário automaticamente
             row = df.iloc[0]
             st.session_state.update({
                 'logado': True,
@@ -182,17 +179,13 @@ def verificar_sessao_automatica():
                 'tipo_usuario': str(row['tipo']).lower().strip(),
                 'saldo_atual': float(row['saldo'])
             })
-            # Força rerun para aplicar o estilo correto
             st.rerun()
 
 def realizar_logout():
-    # Limpa token do banco (para invalidar links antigos)
     if st.session_state.get('usuario_cod'):
         with conn.session as s:
             s.execute(text("UPDATE usuarios SET token_sessao = NULL WHERE usuario = :u"), {"u": st.session_state.usuario_cod})
             s.commit()
-    
-    # Limpa sessão local e URL
     st.query_params.clear()
     st.session_state.clear()
     st.rerun()
@@ -244,7 +237,6 @@ def validar_login(user_input, pass_input):
     if df.empty: return False, None, None, 0, None, None
     linha = df.iloc[0]
     if verificar_senha_hash(pass_input.strip(), linha['senha']):
-        # Retorna ID também agora
         return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone']), int(linha['id'])
     return False, None, None, 0, None, None
 
@@ -306,7 +298,6 @@ def abrir_modal_senha(usuario_cod):
 def abrir_modal_resete_senha(titulo_janela="Recuperar Senha"):
     st.write(f"**{titulo_janela}**")
     st.write("Digite o nome de usuário (login). Se ele existir, enviaremos uma senha provisória via SMS para o telefone cadastrado.")
-    
     user_input = st.text_input("Usuário (Login)")
     
     if st.button("Gerar e Enviar SMS", type="primary"):
@@ -319,18 +310,14 @@ def abrir_modal_resete_senha(titulo_janela="Recuperar Senha"):
             if len(formatar_telefone(tel)) < 12:
                 st.error("O telefone cadastrado para este usuário parece inválido. Contate o suporte.")
                 return
-
             nova_senha = gerar_senha_aleatoria()
             nova_senha_hash = gerar_hash(nova_senha)
             user_id = int(row['id']) 
-
             with conn.session as s:
                 s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": user_id})
                 s.commit()
-            
             msg = f"Sua senha provisoria e: {nova_senha}. Acesse e troque."
             ok, det, cod = enviar_sms(tel, msg)
-            
             if ok:
                 st.success(f"Sucesso! Senha enviada para o final ...{tel[-4:]}.")
                 registrar_log(titulo_janela, f"Usuário: {row['usuario']}")
@@ -452,7 +439,6 @@ def tela_login():
                             'em_verificacao_2fa': False,
                             'dados_usuario_temp': {}
                         })
-                        # CHAMA A FUNÇÃO DE CRIAR SESSÃO NO BANCO + URL
                         criar_sessao_persistente(dados['id'])
                         st.rerun()
                     else:
@@ -641,11 +627,11 @@ def tela_principal():
                             
                             c_detalhe, c_resgate = st.columns([1, 2])
                             with c_detalhe:
-                                if st.button("🔍", key=f"det_{row['id']}", help="Ver Detalhes"):
+                                if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes"):
                                     ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
                             with c_resgate:
                                 if sld >= row['custo']:
-                                    if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
+                                    if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True, type="primary"):
                                         confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
@@ -687,6 +673,6 @@ def tela_principal():
             else: st.info("Ranking ainda vazio.")
 
 if __name__ == "__main__":
-    verificar_sessao_automatica() # <--- O SEGREDO ESTÁ AQUI
+    verificar_sessao_automatica()
     if st.session_state.logado: tela_principal()
     else: tela_login()
