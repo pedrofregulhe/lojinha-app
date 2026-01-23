@@ -23,6 +23,11 @@ if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
 if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 
+# Novas variáveis para o 2FA
+if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificacao_2fa'] = False
+if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
+if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
+
 # --- CSS DINÂMICO ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
@@ -67,7 +72,6 @@ if not st.session_state.get('logado', False):
         border: none; 
     }
     
-    /* Botões de Link (Secundários no Login) */
     div.stButton > button[kind="secondary"] { 
         background-color: transparent !important; 
         color: white !important; 
@@ -215,11 +219,11 @@ def registrar_log(acao, detalhes):
 # --- LÓGICA ---
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
-    if df.empty: return False, None, None, 0
+    if df.empty: return False, None, None, 0, None
     linha = df.iloc[0]
     if verificar_senha_hash(pass_input.strip(), linha['senha']):
-        return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo'])
-    return False, None, None, 0
+        return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone'])
+    return False, None, None, 0, None
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate):
     try:
@@ -275,7 +279,6 @@ def abrir_modal_senha(usuario_cod):
             registrar_log("Senha Alterada", f"Usuário: {usuario_cod}")
             st.success("Sucesso!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
 
-# --- FUNÇÃO GENÉRICA PARA RESET/PRIMEIRO ACESSO ---
 @st.dialog("🔑 Gerar Senha Provisória")
 def abrir_modal_resete_senha(titulo_janela="Recuperar Senha"):
     st.write(f"**{titulo_janela}**")
@@ -290,8 +293,6 @@ def abrir_modal_resete_senha(titulo_janela="Recuperar Senha"):
         else:
             row = df.iloc[0]
             tel = str(row['telefone'])
-            
-            # Validação rápida de telefone
             if len(formatar_telefone(tel)) < 12:
                 st.error("O telefone cadastrado para este usuário parece inválido. Contate o suporte.")
                 return
@@ -326,6 +327,24 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
             if salvar_venda(usuario_cod, item_nome, custo, email, formatar_telefone(tel)):
                 st.balloons(); st.success("Sucesso!"); time.sleep(2); st.rerun()
 
+# --- NOVO MODAL: DETALHES DO PRODUTO (ATUALIZADO) ---
+@st.dialog("🔍 Detalhes do Produto")
+def ver_detalhes_produto(item, imagem, custo, descricao):
+    st.image(processar_link_imagem(imagem), use_container_width=True)
+    st.markdown(f"## {item}")
+    st.markdown(f"#### 💎 Valor: **{custo} pts**")
+    
+    st.divider()
+    st.write("### 📝 Descrição")
+    # Se não tiver descrição no banco, mostra um texto padrão
+    if descricao and str(descricao).lower() != "none" and len(str(descricao)) > 3:
+        st.write(descricao)
+    else:
+        st.caption("Sem descrição adicional para este item.")
+        
+    st.divider()
+    st.info("ℹ️ **Informações de Entrega:**\nEste item será enviado para o endereço ou contato cadastrado. O prazo de processamento é de até 5 dias úteis.")
+
 @st.dialog("🚀 Confirmar e Processar Envios", width="large")
 def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="vendas"):
     st.write(f"Você selecionou **{len(df_selecionados)} destinatários**.")
@@ -346,7 +365,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
         
         for i, (index, row) in enumerate(df_selecionados.iterrows()):
             status_text.text(f"Processando {i+1}/{total}: {row.get('nome', '')}...")
-            
             tel = str(row['telefone'])
             if tipo_envio == "vendas":
                 nome = str(row['nome_real'] or row['usuario'])
@@ -376,7 +394,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
                         texto = f"Ola {nome}, saldo atualizado! Voce tem {var1} pts."
-                    
                     ok, det, cod = enviar_sms(tel, texto)
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det, "Cód": cod})
                 else:
@@ -388,7 +405,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
         progress_bar.empty()
         status_text.success("Processamento Finalizado!")
         registrar_log("Disparo em Massa", f"Tipo: {tipo_envio} | Qtd: {total}")
-        
         st.download_button(label="📥 Baixar Extrato (CSV)", data=pd.DataFrame(logs_envio).to_csv(index=False).encode('utf-8'), file_name=f'log_{datetime.now().strftime("%Y%m%d_%H%M")}.csv', mime='text/csv')
         if st.button("Fechar e Atualizar"): st.rerun()
 
@@ -397,36 +413,79 @@ def tela_login():
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
         st.write("") 
-        with st.form("f_login"):
-            st.markdown("""
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: 10px;">
-                        Lojinha Culli's
-                    </h1>
-                    <p style="color: #555555; font-size: 0.9rem; line-height: 1.4; font-weight: 400; margin: 0;">
-                        Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-            u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
-            st.write("") 
+        
+        if st.session_state.get('em_verificacao_2fa', False):
+            with st.form("f_2fa"):
+                st.markdown("""
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h2 style="color: #003366;">🔒 Segurança</h2>
+                        <p>Enviamos um código SMS para o final <b>...{}</b></p>
+                    </div>
+                """.format(str(st.session_state.dados_usuario_temp.get('telefone', ''))[-4:]), unsafe_allow_html=True)
+                
+                codigo_digitado = st.text_input("Digite o Código de 6 dígitos", max_chars=6, help="Verifique seu SMS")
+                
+                if st.form_submit_button("VALIDAR ACESSO", type="primary", use_container_width=True):
+                    if codigo_digitado == st.session_state.codigo_2fa_esperado:
+                        dados = st.session_state.dados_usuario_temp
+                        st.session_state.update({
+                            'logado': True,
+                            'usuario_cod': dados['usuario'],
+                            'usuario_nome': dados['nome'],
+                            'tipo_usuario': dados['tipo'],
+                            'saldo_atual': dados['saldo'],
+                            'em_verificacao_2fa': False,
+                            'dados_usuario_temp': {}
+                        })
+                        st.rerun()
+                    else:
+                        st.error("Código incorreto. Tente novamente.")
             
-            if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
-                ok, n, t, sld = validar_login(u, s)
-                if ok: st.session_state.update({'logado':True, 'usuario_cod':u, 'usuario_nome':n, 'tipo_usuario':t, 'saldo_atual':sld}); st.rerun()
-                else: st.toast("Login inválido", icon="❌")
-        
-        # --- AQUI ESTÁ A NOVIDADE: BOTÕES DE ACESSO ---
-        st.write("")
-        c_esqueceu, c_primeiro = st.columns(2)
-        
-        with c_esqueceu:
-            if st.button("Esqueci a senha", type="secondary", use_container_width=True):
-                abrir_modal_resete_senha("Recuperar Senha")
-        
-        with c_primeiro:
-            if st.button("Primeiro Acesso?", type="secondary", use_container_width=True):
-                abrir_modal_resete_senha("Primeiro Acesso")
+            if st.button("⬅️ Voltar", type="secondary", use_container_width=True):
+                st.session_state.em_verificacao_2fa = False
+                st.session_state.dados_usuario_temp = {}
+                st.rerun()
+
+        else:
+            with st.form("f_login"):
+                st.markdown("""
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: 10px;">
+                            LOJINHA CULLI
+                        </h1>
+                        <p style="color: #555555; font-size: 0.9rem; line-height: 1.4; font-weight: 400; margin: 0;">
+                            Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+                u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
+                st.write("") 
+                
+                if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
+                    ok, n, t, sld, tel_completo = validar_login(u, s)
+                    if ok:
+                        codigo = str(random.randint(100000, 999999))
+                        msg_2fa = f"Seu codigo de acesso Culli: {codigo}"
+                        enviou, info, _ = enviar_sms(tel_completo, msg_2fa)
+                        
+                        if enviou:
+                            st.session_state.em_verificacao_2fa = True
+                            st.session_state.codigo_2fa_esperado = codigo
+                            st.session_state.dados_usuario_temp = {'usuario': u, 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo}
+                            st.rerun()
+                        else:
+                            st.error(f"Erro no envio do SMS: {info}. Verifique se o telefone está correto no cadastro.")
+                    else:
+                        st.toast("Usuário ou senha incorretos", icon="❌")
+            
+            st.write("")
+            c_esqueceu, c_primeiro = st.columns(2)
+            with c_esqueceu:
+                if st.button("Esqueci a senha", type="secondary", use_container_width=True):
+                    abrir_modal_resete_senha("Recuperar Senha")
+            with c_primeiro:
+                if st.button("Primeiro Acesso?", type="secondary", use_container_width=True):
+                    abrir_modal_resete_senha("Primeiro Acesso")
 
 def tela_admin():
     c_titulo, c_refresh = st.columns([4, 1])
@@ -453,7 +512,6 @@ def tela_admin():
             )
             
             st.markdown("<br>", unsafe_allow_html=True)
-            
             c_check_zap_1, c_check_sms_1, c_btn_save_1, c_btn_send_1 = st.columns([0.8, 0.8, 1.2, 1.5])
             with c_check_zap_1: usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas")
             with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas")
@@ -495,7 +553,6 @@ def tela_admin():
                 else: st.warning("Selecione alguém e um valor maior que 0.")
 
         st.divider()
-        
         df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
@@ -506,7 +563,6 @@ def tela_admin():
             })
             
             st.markdown("<br>", unsafe_allow_html=True)
-            
             c_check_zap_2, c_check_sms_2, c_btn_save_2, c_btn_send_2 = st.columns([0.8, 0.8, 1.2, 1.5])
             with c_check_zap_2: aviso_zap = st.checkbox("WhatsApp", value=True, key="check_bal_zap")
             with c_check_sms_2: aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms")
@@ -525,11 +581,29 @@ def tela_admin():
                     else: processar_envios_dialog(sel, aviso_zap, aviso_sms, tipo_envio="usuarios")
 
     with t3:
-        df_p = run_query("SELECT * FROM premios ORDER BY id"); edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p")
+        # ATUALIZADO: Carrega coluna 'descricao'
+        df_p = run_query("SELECT * FROM premios ORDER BY id")
+        
+        # Data Editor agora permite editar a descrição
+        edit_p = st.data_editor(
+            df_p, 
+            use_container_width=True, 
+            num_rows="dynamic", 
+            key="ed_p",
+            column_config={
+                "descricao": st.column_config.TextColumn("Descrição (Detalhes)", width="large")
+            }
+        )
+        
         if st.button("Salvar Prêmios"):
             with conn.session as sess:
                 for i, row in edit_p.iterrows():
-                    if row['id']: sess.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c WHERE id=:id"), {"i": row['item'], "im": row['imagem'], "c": row['custo'], "id": row['id']})
+                    # ATUALIZADO: Salva coluna 'descricao'
+                    if row['id']: 
+                        sess.execute(
+                            text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), 
+                            {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao', ''), "id": row['id']}
+                        )
                 sess.commit()
             st.success("Salvo!"); st.rerun()
 
@@ -549,6 +623,7 @@ def tela_principal():
     else:
         t1, t2, t3 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates", "🏆 Ranking"])
         with t1:
+            # ATUALIZADO: Busca também 'descricao'
             df_p = run_query("SELECT * FROM premios ORDER BY id") 
             if not df_p.empty:
                 cols = st.columns(4)
@@ -559,7 +634,17 @@ def tela_principal():
                             if len(img) > 10: st.image(processar_link_imagem(img))
                             st.markdown(f"**{row['item']}**"); cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
-                            if sld >= row['custo'] and st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True): confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
+                            
+                            # Layout Botões: Lupa + Resgatar
+                            c_detalhe, c_resgate = st.columns([1, 2])
+                            with c_detalhe:
+                                if st.button("🔍", key=f"det_{row['id']}", help="Ver Detalhes"):
+                                    # Chama Modal passando a descrição
+                                    ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
+                            with c_resgate:
+                                if sld >= row['custo']:
+                                    if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True):
+                                        confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
             meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod})
