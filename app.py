@@ -28,7 +28,7 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (AGRESSIVO) ---
+# --- CSS DINÂMICO ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
     html, body, [class*="css"] { font-family: 'Poppins', sans-serif; }
@@ -38,7 +38,6 @@ css_comum = """
     
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
     
-    /* ALINHAMENTO VERTICAL DAS COLUNAS */
     [data-testid="column"] {
         display: flex;
         flex-direction: column;
@@ -46,40 +45,36 @@ css_comum = """
         height: 100%;
     }
 
-    /* ============================================================ */
-    /* 1. ESTILO PADRÃO (AFETA O CABEÇALHO/HEADER)                  */
-    /* ============================================================ */
-    
-    /* Botão Secundário (Branco) - No Header fica GRANDE (100px) */
-    div.stButton > button[kind="secondary"] { 
-        background-color: #ffffff !important; 
-        color: #003366 !important; 
-        border-radius: 12px !important; 
-        border: 2px solid #eef2f6 !important; 
-        height: 100px !important; /* FORÇA ALTURA DO HEADER */
-        font-weight: 600 !important; 
-        font-size: 16px !important;
-        width: 100% !important; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important; 
+    div.stButton > button[kind="primary"] { 
+        background-color: #0066cc !important; 
+        color: white !important; 
+        border-radius: 12px; 
+        border: none; 
+        height: 55px; 
+        font-weight: 600; 
+        width: 100%; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    div.stButton > button[kind="secondary"]:hover { 
-        border-color: #003366 !important; 
-        background-color: #f9fafb !important;
+    
+    div.stButton > button[kind="secondary"] { 
+        background-color: #ffffff; 
+        color: #003366; 
+        border-radius: 12px; 
+        border: 2px solid #eef2f6; 
+        height: 100px; 
+        font-weight: 600; 
+        width: 100%; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
-    /* ============================================================ */
-    /* 2. ESTILO ESPECÍFICO PARA DENTRO DAS ABAS (VITRINE)          */
-    /* ============================================================ */
-    
-    /* Reseta a altura para 50px para QUALQUER botão dentro das abas */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
         border-radius: 8px !important;
-        font-size: 14px !important;
+        box-shadow: none !important;
+        transition: all 0.2s ease;
     }
 
-    /* Botão RESGATAR (Primary na Vitrine) -> ESTILO OUTLINE (Transparente com Borda Azul) */
     [data-testid="stTabs"] button[kind="primary"] {
         background-color: transparent !important;
         border: 2px solid #0066cc !important;
@@ -87,18 +82,17 @@ css_comum = """
         box-shadow: none !important;
     }
     [data-testid="stTabs"] button[kind="primary"]:hover {
-        background-color: #e6f0ff !important; /* Azul clarinho no hover */
+        background-color: #e6f0ff !important;
         border-color: #0052a3 !important;
         color: #0052a3 !important;
         transform: translateY(-2px);
     }
 
-    /* Botão DETALHES (Secondary na Vitrine) -> Cinza Discreto */
     [data-testid="stTabs"] button[kind="secondary"] {
         background-color: transparent !important;
         border: 1px solid #e0e0e0 !important;
         color: #555 !important;
-        height: 50px !important; /* Garante que sobrescreve o 100px do header */
+        height: 50px !important;
         box-shadow: none !important;
     }
     [data-testid="stTabs"] button[kind="secondary"]:hover {
@@ -107,18 +101,10 @@ css_comum = """
         background-color: #f5f5f5 !important;
     }
 
-    /* Botões do Modal/Admin (Primary) - Mantém Azul Sólido */
-    div.stButton > button[kind="primary"] { 
-        background-color: #0066cc; 
-        color: white; 
-        border: none;
-    }
-
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
 """
 
 if not st.session_state.get('logado', False):
-    # CSS ESPECÍFICO LOGIN (Reseta os botões grandes para links pequenos)
     estilo_especifico = """
     .stApp { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
@@ -135,7 +121,6 @@ if not st.session_state.get('logado', False):
         border: none; 
     }
     
-    /* Reset total para os botões de link na tela de login */
     div.stButton > button[kind="secondary"] { 
         background-color: transparent !important; 
         color: white !important; 
@@ -150,14 +135,13 @@ if not st.session_state.get('logado', False):
     div.stButton > button[kind="secondary"]:hover { 
         background-color: rgba(255,255,255,0.1) !important;
         border-color: white !important;
+        transform: none !important;
     }
     
-    /* Botão Entrar Normal */
     [data-testid="stForm"] div.stButton > button[kind="primary"] {
+        height: 50px !important;
         background-color: #0066cc !important;
         color: white !important;
-        height: 50px !important;
-        border-radius: 8px !important;
     }
     """
 else:
@@ -253,7 +237,10 @@ def enviar_sms(telefone, mensagem_texto):
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
         if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
-        payload = { "messages": [ { "from": "InfoSMS", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
+        
+        # MUDANÇA: Voltei para "LojinhaCulli" para evitar bloqueios de remetente genérico
+        payload = { "messages": [ { "from": "LojinhaCulli", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
+        
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code not in [200, 201]: return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
@@ -407,10 +394,26 @@ def ver_detalhes_produto(item, imagem, custo, descricao):
 @st.dialog("🚀 Confirmar e Processar Envios", width="large")
 def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="vendas"):
     st.write(f"Você selecionou **{len(df_selecionados)} destinatários**.")
-    st.write(f"Canais Ativos: {'✅ WhatsApp' if usar_zap else ''} {'✅ SMS' if usar_sms else ''}")
     
+    # DIAGNÓSTICO DE CANAIS ATIVOS (VISUAL)
+    st.markdown(f"""
+        <div style='background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
+            <b>Canais Selecionados:</b> 
+            {'✅ WhatsApp' if usar_zap else '❌ WhatsApp'} | 
+            {'✅ SMS' if usar_sms else '❌ SMS'}
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # VALIDAÇÃO PRÉVIA DE TELEFONES
+    invalidos = 0
+    for i, row in df_selecionados.iterrows():
+        tel = str(row['telefone'])
+        if len(formatar_telefone(tel)) < 12: invalidos += 1
+    if invalidos > 0:
+        st.warning(f"⚠️ Atenção: {invalidos} usuários têm números de telefone inválidos e podem não receber a mensagem.")
+
     if not usar_zap and not usar_sms:
-        st.error("Nenhum canal de envio selecionado.")
+        st.error("Nenhum canal de envio selecionado. Marque WhatsApp ou SMS antes de clicar.")
         return
 
     st.warning("⚠️ **Atenção:** Ao clicar em Confirmar, o sistema iniciará o disparo. Não feche a janela até o fim.")
@@ -435,6 +438,7 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                 except: var1 = "0"
                 var2 = ""
 
+            # WhatsApp
             if usar_zap:
                 if len(formatar_telefone(tel)) >= 12:
                     if tipo_envio == "vendas":
@@ -445,12 +449,14 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                 else:
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-"})
 
+            # SMS
             if usar_sms:
                 if len(formatar_telefone(tel)) >= 12:
                     if tipo_envio == "vendas":
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
                         texto = f"Ola {nome}, saldo atualizado! Voce tem {var1} pts."
+                    
                     ok, det, cod = enviar_sms(tel, texto)
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det, "Cód": cod})
                 else:
@@ -571,8 +577,8 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             c_check_zap_1, c_check_sms_1, c_btn_save_1, c_btn_send_1 = st.columns([0.8, 0.8, 1.2, 1.5])
-            with c_check_zap_1: usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas")
-            with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas")
+            with c_check_zap_1: usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas_tab1") # CHAVE ÚNICA TAB 1
+            with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") # CHAVE ÚNICA TAB 1
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
                     with conn.session as s:
@@ -622,8 +628,8 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             c_check_zap_2, c_check_sms_2, c_btn_save_2, c_btn_send_2 = st.columns([0.8, 0.8, 1.2, 1.5])
-            with c_check_zap_2: aviso_zap = st.checkbox("WhatsApp", value=True, key="check_bal_zap")
-            with c_check_sms_2: aviso_sms = st.checkbox("SMS", value=False, key="check_bal_sms")
+            with c_check_zap_2: aviso_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_saldos_tab2") # CHAVE ÚNICA TAB 2
+            with c_check_sms_2: aviso_sms = st.checkbox("SMS", value=False, key="chk_sms_saldos_tab2") # CHAVE ÚNICA TAB 2
             with c_btn_save_2:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_users"):
                     with conn.session as sess:
@@ -666,12 +672,10 @@ def tela_principal():
         st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     with c_senha:
-        # Botão Secundário (Alterar Senha)
         if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): 
             abrir_modal_senha(u_cod)
             
     with c_sair:
-        # Botão Secundário (Encerrar Sessão)
         if st.button("❌ Encerrar Sessão", type="secondary", use_container_width=True): 
             realizar_logout()
             
@@ -692,14 +696,12 @@ def tela_principal():
                             st.markdown(f"**{row['item']}**"); cor = "#0066cc" if sld >= row['custo'] else "#999"
                             st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
                             
-                            # --- BOTÕES ALINHADOS COM LARGURA IGUAL ---
-                            c_detalhe, c_resgate = st.columns([1, 1]) # Colunas iguais [1,1] para botões do mesmo tamanho
+                            c_detalhe, c_resgate = st.columns([1, 1]) 
                             with c_detalhe:
                                 if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True):
                                     ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
                             with c_resgate:
                                 if sld >= row['custo']:
-                                    # Botão Primary (que o CSS transforma em Outline dentro das Tabs)
                                     if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True, type="primary"):
                                         confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         with t2:
