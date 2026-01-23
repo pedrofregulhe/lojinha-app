@@ -46,13 +46,15 @@ css_comum = """
         height: 100%;
     }
 
+    /* --- BOTÕES PADRONIZADOS (MESMA ALTURA) --- */
+    
     /* BOTÃO PRIMÁRIO (AZUL CULLIGAN) */
     div.stButton > button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
-        border-radius: 12px; 
+        border-radius: 10px; 
         border: none; 
-        height: 55px; 
+        height: 50px; /* Altura Fixa Padrão */
         font-weight: 600; 
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
@@ -64,28 +66,24 @@ css_comum = """
         box-shadow: 0 6px 12px rgba(0,0,0,0.15);
     }
     
-    /* BOTÃO SECUNDÁRIO (BRANCO/BLOCO) - ALTERADO PARA 100px */
+    /* BOTÃO SECUNDÁRIO (BRANCO) */
     div.stButton > button[kind="secondary"] { 
         background-color: #ffffff; 
         color: #003366; 
-        border-radius: 12px; 
+        border-radius: 10px; 
         border: 2px solid #eef2f6; 
-        height: 100px; /* AUMENTADO PARA 100px PARA ALINHAR COM O BANNER */
+        height: 50px; /* MESMA ALTURA DO PRIMÁRIO */
         font-weight: 600; 
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
         transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        line-height: 1.2;
     }
     div.stButton > button[kind="secondary"]:hover { 
         border-color: #003366; 
         color: #003366; 
         background-color: #ffffff;
         transform: translateY(-2px);
-        box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.1);
     }
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
@@ -133,14 +131,14 @@ else:
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400%; 
         animation: gradient 10s ease infinite; 
-        padding: 15px 25px; 
+        padding: 20px 30px; 
         border-radius: 15px; 
         color: white; 
         box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
         display: flex; 
         flex-direction: column; 
         justify-content: center; 
-        height: 100px; /* FIXADO EM 100px PARA IGUALAR AOS BOTÕES */
+        min-height: 100px;
     }
     """
 
@@ -631,7 +629,7 @@ def tela_principal():
         st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     with c_senha:
-        # Botão "Secundário" com altura forçada de 100px pelo CSS
+        # Botão "Secundário" com altura forçada de 50px pelo CSS
         if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): 
             abrir_modal_senha(u_cod)
             
@@ -659,7 +657,7 @@ def tela_principal():
                             
                             c_detalhe, c_resgate = st.columns([1, 2])
                             with c_detalhe:
-                                if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes"):
+                                if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary"):
                                     ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
                             with c_resgate:
                                 if sld >= row['custo']:
