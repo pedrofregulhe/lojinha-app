@@ -67,6 +67,7 @@ css_comum = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
+    /* REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
@@ -238,7 +239,6 @@ def enviar_sms(telefone, mensagem_texto):
         tel_final = formatar_telefone(telefone)
         if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
         
-        # MUDANÇA: Voltei para "LojinhaCulli" para evitar bloqueios de remetente genérico
         payload = { "messages": [ { "from": "LojinhaCulli", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
         
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
@@ -395,7 +395,6 @@ def ver_detalhes_produto(item, imagem, custo, descricao):
 def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="vendas"):
     st.write(f"Você selecionou **{len(df_selecionados)} destinatários**.")
     
-    # DIAGNÓSTICO DE CANAIS ATIVOS (VISUAL)
     st.markdown(f"""
         <div style='background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
             <b>Canais Selecionados:</b> 
@@ -404,7 +403,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
         </div>
     """, unsafe_allow_html=True)
     
-    # VALIDAÇÃO PRÉVIA DE TELEFONES
     invalidos = 0
     for i, row in df_selecionados.iterrows():
         tel = str(row['telefone'])
@@ -438,7 +436,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                 except: var1 = "0"
                 var2 = ""
 
-            # WhatsApp
             if usar_zap:
                 if len(formatar_telefone(tel)) >= 12:
                     if tipo_envio == "vendas":
@@ -449,7 +446,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                 else:
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido", "Cód": "-"})
 
-            # SMS
             if usar_sms:
                 if len(formatar_telefone(tel)) >= 12:
                     if tipo_envio == "vendas":
@@ -552,9 +548,7 @@ def tela_login():
                     abrir_modal_resete_senha("Primeiro Acesso")
 
 def tela_admin():
-    c_titulo, c_refresh = st.columns([4, 1])
-    c_titulo.subheader("🛠️ Painel Admin")
-    if c_refresh.button("🔄 Atualizar"): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
+    st.subheader("🛠️ Painel Admin")
         
     t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
     
@@ -577,8 +571,8 @@ def tela_admin():
             
             st.markdown("<br>", unsafe_allow_html=True)
             c_check_zap_1, c_check_sms_1, c_btn_save_1, c_btn_send_1 = st.columns([0.8, 0.8, 1.2, 1.5])
-            with c_check_zap_1: usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas_tab1") # CHAVE ÚNICA TAB 1
-            with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") # CHAVE ÚNICA TAB 1
+            with c_check_zap_1: usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas_tab1") 
+            with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") 
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
                     with conn.session as s:
@@ -665,12 +659,33 @@ def tela_admin():
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
-    # --- LAYOUT 3 COLUNAS ALINHADAS ---
-    c_banner, c_senha, c_sair = st.columns([3, 1, 1], gap="medium")
+    # --- LAYOUT HEADER DINÂMICO ---
+    if tipo == 'admin':
+        # Admin vê 4 colunas: Banner | Atualizar | Senha | Sair
+        cols = st.columns([3, 1, 1, 1], gap="small")
+        c_banner = cols[0]
+        c_refresh = cols[1]
+        c_senha = cols[2]
+        c_sair = cols[3]
+    else:
+        # Comum vê 3 colunas: Banner | Senha | Sair
+        cols = st.columns([3, 1, 1], gap="medium")
+        c_banner = cols[0]
+        c_senha = cols[1]
+        c_sair = cols[2]
+        c_refresh = None
     
     with c_banner:
         st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
+    if c_refresh:
+        with c_refresh:
+            if st.button("🔄 Atualizar", type="secondary", use_container_width=True):
+                st.cache_data.clear()
+                st.toast("Sincronizado!", icon="✅")
+                time.sleep(1)
+                st.rerun()
+
     with c_senha:
         if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): 
             abrir_modal_senha(u_cod)
