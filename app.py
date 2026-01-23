@@ -38,7 +38,7 @@ css_comum = """
     
     [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
     
-    /* ALINHAMENTO VERTICAL DAS COLUNAS (CENTRALIZAR BOTÕES COM BANNER) */
+    /* ALINHAMENTO VERTICAL DAS COLUNAS */
     [data-testid="column"] {
         display: flex;
         flex-direction: column;
@@ -52,7 +52,7 @@ css_comum = """
         color: white !important; 
         border-radius: 12px; 
         border: none; 
-        height: 55px; /* Altura maior para o botão de ação */
+        height: 55px; 
         font-weight: 600; 
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
@@ -64,16 +64,16 @@ css_comum = """
         box-shadow: 0 6px 12px rgba(0,0,0,0.15);
     }
     
-    /* BOTÃO SECUNDÁRIO (BRANCO/BLOCO) - Usado no Topo */
+    /* BOTÃO SECUNDÁRIO (BRANCO/BLOCO) - ALTERADO PARA 100px */
     div.stButton > button[kind="secondary"] { 
         background-color: #ffffff; 
         color: #003366; 
         border-radius: 12px; 
-        border: 2px solid #eef2f6; /* Borda sutil */
-        height: 80px; /* MESMA ALTURA VISUAL DO BANNER (aprox) */
+        border: 2px solid #eef2f6; 
+        height: 100px; /* AUMENTADO PARA 100px PARA ALINHAR COM O BANNER */
         font-weight: 600; 
         width: 100%; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05); /* Sombra leve */
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
         transition: all 0.2s ease;
         display: flex;
         align-items: center;
@@ -133,14 +133,14 @@ else:
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400%; 
         animation: gradient 10s ease infinite; 
-        padding: 15px 25px; /* Padding ajustado para alinhar altura */
+        padding: 15px 25px; 
         border-radius: 15px; 
         color: white; 
         box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
         display: flex; 
         flex-direction: column; 
         justify-content: center; 
-        min-height: 80px; /* Garante altura mínima igual aos botões */
+        height: 100px; /* FIXADO EM 100px PARA IGUALAR AOS BOTÕES */
     }
     """
 
@@ -624,20 +624,20 @@ def tela_admin():
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     
-    # --- LAYOUT NOVO: 3 COLUNAS (BANNER + BOTÕES) ---
+    # --- LAYOUT NOVO: 3 COLUNAS ALINHADAS ---
     c_banner, c_senha, c_sair = st.columns([3, 1, 1], gap="medium")
     
     with c_banner:
         st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     with c_senha:
-        # Usamos Secondary mas estilizado via CSS para ter altura de bloco
+        # Botão "Secundário" com altura forçada de 100px pelo CSS
         if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): 
             abrir_modal_senha(u_cod)
             
     with c_sair:
-        # Usamos Secondary também para consistência visual
-        if st.button("❌ Sair", type="secondary", use_container_width=True): 
+        # Texto alterado para "Encerrar Sessão"
+        if st.button("❌ Encerrar Sessão", type="secondary", use_container_width=True): 
             realizar_logout()
             
     st.divider()
