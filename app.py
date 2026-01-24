@@ -31,7 +31,27 @@ if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario
 # --- CSS DINÂMICO ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
-    html, body, [class*="css"] { font-family: 'Poppins', sans-serif; }
+    
+    /* === CORREÇÃO DE MODO ESCURO (FORÇA TEXTO ESCURO EM FUNDO CLARO) === */
+    html, body, [class*="css"], .stMarkdown, .stText, p, h1, h2, h3, h4, span, div {
+        font-family: 'Poppins', sans-serif;
+        color: #31333F !important; /* Força cor cinza escuro padrão */
+    }
+    
+    /* Garante que o texto dentro de inputs seja legível */
+    input, textarea, select {
+        color: #31333F !important;
+        background-color: #ffffff !important;
+    }
+
+    /* Exceção: Textos que PRECISAM ser brancos (Banner e Botões Primários) */
+    .header-style h2, .header-style p, .header-style span, .header-style div {
+        color: white !important;
+    }
+    button[kind="primary"] p, button[kind="primary"] div {
+        color: white !important;
+    }
+
     header { visibility: hidden; }
     .stDeployButton { display: none; }
     .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
@@ -57,16 +77,17 @@ css_comum = """
     }
     
     div.stButton > button[kind="secondary"] { 
-        background-color: #ffffff; 
-        color: #003366; 
+        background-color: #ffffff !important; 
+        color: #003366 !important; 
         border-radius: 12px; 
-        border: 2px solid #eef2f6; 
+        border: 2px solid #eef2f6 !important; 
         height: 100px; 
         font-weight: 600; 
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
+    /* REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
@@ -81,10 +102,13 @@ css_comum = """
         color: #0066cc !important;
         box-shadow: none !important;
     }
+    /* Correção do Hover do botão transparente para o texto ficar azul escuro e não branco sumido */
+    [data-testid="stTabs"] button[kind="primary"]:hover p {
+        color: #0052a3 !important; 
+    }
     [data-testid="stTabs"] button[kind="primary"]:hover {
         background-color: #e6f0ff !important;
         border-color: #0052a3 !important;
-        color: #0052a3 !important;
         transform: translateY(-2px);
     }
 
@@ -97,11 +121,26 @@ css_comum = """
     }
     [data-testid="stTabs"] button[kind="secondary"]:hover {
         border-color: #999 !important;
-        color: #333 !important;
         background-color: #f5f5f5 !important;
     }
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
+
+    /* === RESPONSIVIDADE (MOBILE) === */
+    @media only screen and (max-width: 600px) {
+        .header-style {
+            padding: 20px !important;
+            text-align: center !important;
+        }
+        /* No celular, botões voltam ao tamanho normal para não ocupar a tela toda */
+        div.stButton > button[kind="secondary"] {
+            height: 60px !important; 
+        }
+        /* Ajuste de tamanho de fonte no Banner */
+        .header-style h2 { font-size: 1.5rem !important; }
+        .header-style p { font-size: 0.9rem !important; }
+        .header-style span { font-size: 1.2rem !important; }
+    }
 """
 
 if not st.session_state.get('logado', False):
@@ -132,6 +171,9 @@ if not st.session_state.get('logado', False):
         box-shadow: none !important;
         margin-top: 5px;
     }
+    /* Exceção para Links Login: Texto Branco */
+    div.stButton > button[kind="secondary"] p { color: white !important; }
+
     div.stButton > button[kind="secondary"]:hover { 
         background-color: rgba(255,255,255,0.1) !important;
         border-color: white !important;
@@ -159,7 +201,8 @@ else:
         display: flex; 
         flex-direction: column; 
         justify-content: center; 
-        height: 100px; 
+        min-height: 100px; /* Mudança: min-height permite crescer se o texto vazar */
+        height: auto;      /* Altura automática */
     }
     """
 
@@ -715,7 +758,7 @@ def tela_principal():
         c_refresh = None
     
     with c_banner:
-        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     if c_refresh:
         with c_refresh:
