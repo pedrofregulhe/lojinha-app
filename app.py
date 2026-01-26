@@ -230,7 +230,9 @@ def enviar_sms(telefone, mensagem_texto):
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
         if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
+        
         payload = { "messages": [ { "from": "InfoSMS", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
+        
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code not in [200, 201]: return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
@@ -294,8 +296,7 @@ def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
         user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod})
         if user_df.empty: return False, "Usuário não encontrado"
         
-        # --- CORREÇÃO DO ERRO 'np' ---
-        custo_real = float(custo) # Converte explicitamente para float Python
+        custo_real = float(custo)
         
         if float(user_df.iloc[0]['saldo']) < custo_real: return False, "Saldo insuficiente"
         
@@ -395,7 +396,9 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
 def confirmar_compra_ticket(rifa_id, item_nome, custo, usuario_cod):
     st.write(f"Você está comprando um ticket para sortear: **{item_nome}**")
     st.write(f"Custo: **{custo} pts**")
-    st.warning("Quanto mais tickets comprar, maior a chance de ganhar! (Mas lembre-se: é difícil!)")
+    
+    # MUDANÇA: Texto incentivador apenas
+    st.info("Quanto mais tickets comprar, maior a chance de ganhar!")
     
     if st.button("CONFIRMAR COMPRA", type="primary", use_container_width=True):
         ok, msg = comprar_ticket_rifa(rifa_id, custo, usuario_cod)
@@ -609,7 +612,7 @@ def tela_admin():
             with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") 
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
-                    st.cache_data.clear() 
+                    st.cache_data.clear() # Limpeza preventiva
                     try:
                         with conn.session as s:
                             for i, row in edit_v.iterrows():
@@ -848,11 +851,33 @@ def tela_principal():
     
     if tipo == 'admin': tela_admin()
     else:
-        # === LAYOUT REESTRUTURADO: 4 ABAS ===
-        t1, t2, t3, t4 = st.tabs(["🍀 Sorteio", "🎁 Catálogo", "📜 Meus Resgates", "🏆 Ranking"])
+        # === REORDENAÇÃO DAS ABAS AQUI ===
+        t1, t2, t3, t4 = st.tabs(["🎁 Catálogo", "🍀 Sorteio", "📜 Meus Resgates", "🏆 Ranking"])
         
-        # --- ABA 1: SORTEIO ---
+        # --- ABA 1: CATÁLOGO ---
         with t1:
+            df_p = run_query("SELECT * FROM premios ORDER BY id") 
+            if not df_p.empty:
+                cols = st.columns(4)
+                for i, row in df_p.iterrows():
+                    with cols[i % 4]:
+                        with st.container(border=True):
+                            img = str(row.get('imagem', ''))
+                            if len(img) > 10: st.image(processar_link_imagem(img))
+                            st.markdown(f"**{row['item']}**"); cor = "#0066cc" if sld >= row['custo'] else "#999"
+                            st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
+                            
+                            c_detalhe, c_resgate = st.columns([1, 1]) 
+                            with c_detalhe:
+                                if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True):
+                                    ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
+                            with c_resgate:
+                                if sld >= row['custo']:
+                                    if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True, type="primary"):
+                                        confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
+
+        # --- ABA 2: SORTEIO ---
+        with t2:
             rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
             if not rifa_ativa.empty:
                 r = rifa_ativa.iloc[0]
@@ -878,29 +903,9 @@ def tela_principal():
                     if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary", use_container_width=True):
                         confirmar_compra_ticket(int(r['id']), r['item_nome'], r['custo_ticket'], u_cod)
             else:
-                st.info("Nenhum sorteio ativo no momento. Fique de olho no grupo do WhatsApp para novidades!")
+                # MUDANÇA: REMOVIDA A MENSAGEM DO WHATSAPP
+                st.info("Nenhum sorteio ativo no momento.")
 
-        # --- ABA 2: CATÁLOGO ---
-        with t2:
-            df_p = run_query("SELECT * FROM premios ORDER BY id") 
-            if not df_p.empty:
-                cols = st.columns(4)
-                for i, row in df_p.iterrows():
-                    with cols[i % 4]:
-                        with st.container(border=True):
-                            img = str(row.get('imagem', ''))
-                            if len(img) > 10: st.image(processar_link_imagem(img))
-                            st.markdown(f"**{row['item']}**"); cor = "#0066cc" if sld >= row['custo'] else "#999"
-                            st.markdown(f"<div style='color:{cor}; font-weight:bold;'>{row['custo']} pts</div>", unsafe_allow_html=True)
-                            
-                            c_detalhe, c_resgate = st.columns([1, 1]) 
-                            with c_detalhe:
-                                if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True):
-                                    ver_detalhes_produto(row['item'], img, row['custo'], row.get('descricao', ''))
-                            with c_resgate:
-                                if sld >= row['custo']:
-                                    if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True, type="primary"):
-                                        confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
         # --- ABA 3: RESGATES ---
         with t3:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
