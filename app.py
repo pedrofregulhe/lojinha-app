@@ -28,7 +28,7 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (REFINADO PARA ALINHAMENTO) ---
+# --- CSS DINÂMICO ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
     
@@ -52,30 +52,25 @@ css_comum = """
     .stDeployButton { display: none; }
     .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
     
-    /* === ALINHAMENTO DO CATÁLOGO (FIX) === */
-    /* 1. Força todas as imagens a terem EXATAMENTE a mesma altura e comportamento */
     [data-testid="stImage"] {
         display: flex;
         justify-content: center;
     }
     [data-testid="stImage"] img { 
-        height: 180px !important; /* Altura fixa maior para padronizar */
+        height: 180px !important; 
         width: auto !important;
         max-width: 100%;
         object-fit: contain !important; 
         border-radius: 10px; 
     }
     
-    /* 2. Garante que as colunas estiquem para alinhar o conteúdo */
     [data-testid="column"] {
         display: flex;
         flex-direction: column;
+        justify-content: center;
         height: 100%;
     }
 
-    /* === BOTÕES E HEADER ALINHADOS NO PC === */
-    
-    /* Botão Primário (Geral) */
     div.stButton > button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
@@ -87,29 +82,24 @@ css_comum = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     
-    /* Botão Secundário (Header) - FIXADO EM 110px PARA ALINHAR COM BANNER */
     div.stButton > button[kind="secondary"] { 
         background-color: #ffffff !important; 
         color: #003366 !important; 
         border-radius: 12px !important; 
         border: 2px solid #eef2f6 !important; 
-        height: 110px !important; /* ALINHAMENTO PERFEITO PC */
+        height: 110px !important; 
         font-weight: 600; 
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
-    /* === REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) === */
-    
-    /* Reseta altura dos botões do catálogo para 50px */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
         border-radius: 8px !important;
-        margin-top: auto; /* Empurra o botão para o final do card */
+        margin-top: auto; 
     }
 
-    /* Botão RESGATAR (Outline Azul) */
     [data-testid="stTabs"] button[kind="primary"] {
         background-color: transparent !important;
         border: 2px solid #0066cc !important;
@@ -120,10 +110,8 @@ css_comum = """
         background-color: #e6f0ff !important;
         transform: translateY(-2px);
     }
-    /* Fix para texto do hover não sumir */
     [data-testid="stTabs"] button[kind="primary"]:hover p { color: #0052a3 !important; }
 
-    /* Botão DETALHES (Cinza) */
     [data-testid="stTabs"] button[kind="secondary"] {
         background-color: transparent !important;
         border: 1px solid #e0e0e0 !important;
@@ -138,17 +126,15 @@ css_comum = """
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
 
-    /* === RESPONSIVIDADE (MOBILE) === */
     @media only screen and (max-width: 600px) {
-        /* No celular, removemos a altura fixa para não quebrar o layout */
         .header-style {
             padding: 20px !important;
             text-align: center !important;
-            height: auto !important; /* Altura automática no mobile */
+            height: auto !important; 
             min-height: auto !important;
         }
         div.stButton > button[kind="secondary"] {
-            height: 60px !important; /* Altura normal de botão no mobile */
+            height: 60px !important; 
         }
         .header-style h2 { font-size: 1.5rem !important; }
         .header-style p { font-size: 0.9rem !important; }
@@ -206,14 +192,14 @@ else:
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400%; 
         animation: gradient 10s ease infinite; 
-        padding: 0 30px; /* Padding lateral apenas */
+        padding: 0 30px; 
         border-radius: 15px; 
         color: white; 
         box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
         display: flex; 
         flex-direction: column; 
-        justify-content: center; /* Centraliza Verticalmente */
-        height: 110px !important; /* ALTURA FIXA IGUAL AOS BOTÕES (PC) */
+        justify-content: center; 
+        height: 110px !important; 
     }
     """
 
@@ -570,12 +556,13 @@ def tela_login():
 
         else:
             with st.form("f_login"):
+                # AQUI FOI FEITA A ALTERAÇÃO PEDIDA (TEXTO E MARGIN)
                 st.markdown("""
                     <div style="text-align: center; margin-bottom: 20px;">
-                        <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: 10px;">
+                        <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: 0px;">
                             Lojinha Culli's
                         </h1>
-                        <p style="color: #555555; font-size: 0.9rem; line-height: 1.4; font-weight: 400; margin: 0;">
+                        <p style="color: #555555; font-size: 0.9rem; line-height: 1.4; font-weight: 400; margin: 0; margin-top: 2px;">
                             Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
                         </p>
                     </div>
@@ -769,7 +756,7 @@ def tela_principal():
         c_refresh = None
     
     with c_banner:
-        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Aproveite para trocar seus pontos por prêmios incríveis!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Bem Vindo (a) a Loja Culligan. Aqui você pode trocar seus pontos por prêmios incríveis! Aproveite!</p></div><div style="text-align:right; color:white;"><span style="font-size:12px; opacity:0.8;">SEU SALDO</span><br><span style="font-size:32px; font-weight:bold;">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
     
     if c_refresh:
         with c_refresh:
