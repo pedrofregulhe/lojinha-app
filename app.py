@@ -32,7 +32,6 @@ if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
     
-    /* === CORREÇÃO DE MODO ESCURO === */
     html, body, [class*="css"], .stMarkdown, .stText, p, h1, h2, h3, h4, span, div {
         font-family: 'Poppins', sans-serif;
         color: #31333F !important; 
@@ -41,7 +40,6 @@ css_comum = """
         color: #31333F !important;
         background-color: #ffffff !important;
     }
-    /* Textos do Banner PRECISAM ser brancos */
     .header-style h2, .header-style p, .header-style span, .header-style div {
         color: white !important;
     }
@@ -69,19 +67,19 @@ css_comum = """
         height: 100%;
     }
 
-    /* === AJUSTE DE FONTE DO BANNER (MENORZINHO) === */
+    /* BANNER COMPACTO */
     .header-style h2 {
-        font-size: 20px !important; /* Reduzido de 22px para 20px */
+        font-size: 20px !important; 
         font-weight: 700 !important;
         margin-bottom: 2px !important;
     }
     .header-style p {
-        font-size: 12px !important; /* Reduzido de 13px para 12px */
+        font-size: 12px !important; 
         line-height: 1.3 !important;
         opacity: 0.9 !important;
     }
     .header-style .saldo-label { font-size: 10px !important; opacity: 0.8 !important; }
-    .header-style .saldo-valor { font-size: 25px !important; } /* Reduzido de 28px para 25px */
+    .header-style .saldo-valor { font-size: 25px !important; }
 
     /* BOTÕES */
     div.stButton > button[kind="primary"] { 
@@ -138,10 +136,9 @@ css_comum = """
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
 
-    /* === RESPONSIVIDADE (MOBILE) === */
     @media only screen and (max-width: 600px) {
         .header-style {
-            padding: 12px !important; /* Padding menor no celular */
+            padding: 12px !important;
             text-align: center !important;
             height: auto !important; 
             min-height: auto !important;
@@ -149,10 +146,9 @@ css_comum = """
         div.stButton > button[kind="secondary"] {
             height: 60px !important; 
         }
-        /* FONTES PEQUENAS NO CELULAR */
-        .header-style h2 { font-size: 16px !important; } /* Título menor */
-        .header-style p { font-size: 11px !important; }   /* Texto menor */
-        .header-style .saldo-valor { font-size: 22px !important; } /* Valor menor */
+        .header-style h2 { font-size: 16px !important; } 
+        .header-style p { font-size: 11px !important; }
+        .header-style .saldo-valor { font-size: 22px !important; }
     }
 """
 
@@ -501,7 +497,6 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                     if tipo_envio == "vendas":
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
-                        # MENSAGEM CORRIGIDA
                         texto = f"Lojinha Culli: Ola {nome}, sua pontuacao foi atualizada e seu saldo atual e de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
                     
                     ok, det, cod = enviar_sms(tel, texto)
@@ -725,6 +720,58 @@ def tela_admin():
                     else: processar_envios_dialog(sel, aviso_zap, aviso_sms, tipo_envio="usuarios")
 
     with t3:
+        # === AQUI ESTÁ A NOVA FUNÇÃO DE REPRECIFICAÇÃO EM MASSA (v3.5) ===
+        with st.expander("⚙️ Reprecificação em Massa (Valor do Ponto)"):
+            st.info("ℹ️ Utilize esta ferramenta para ajustar o preço de **TODOS** os produtos de uma só vez com base no valor do ponto em Reais.")
+            
+            c_base1, c_base2 = st.columns(2)
+            valor_ponto_atual = c_base1.number_input("Valor ATUAL do Ponto (R$)", value=0.50, step=0.01, min_value=0.01, format="%.2f")
+            valor_ponto_novo = c_base2.number_input("NOVO Valor do Ponto (R$)", value=0.50, step=0.01, min_value=0.01, format="%.2f")
+            
+            if valor_ponto_atual != valor_ponto_novo:
+                st.write("---")
+                st.markdown("### 🔎 Simulação de Novos Preços")
+                
+                # Fator de conversão: (Ponto Antigo / Ponto Novo)
+                # Ex: 0.50 / 0.25 = 2 (Preço dobra em pontos)
+                # Ex: 0.50 / 1.00 = 0.5 (Preço cai pela metade em pontos)
+                fator = valor_ponto_atual / valor_ponto_novo
+                
+                df_preview = run_query("SELECT id, item, custo FROM premios")
+                if not df_preview.empty:
+                    df_preview['custo_novo'] = (df_preview['custo'] * fator).astype(int)
+                    df_preview['diferenca'] = df_preview['custo_novo'] - df_preview['custo']
+                    
+                    st.dataframe(
+                        df_preview[['item', 'custo', 'custo_novo', 'diferenca']], 
+                        column_config={
+                            "item": "Produto",
+                            "custo": "Pontos Atuais",
+                            "custo_novo": "Novos Pontos",
+                            "diferenca": "Diferença"
+                        },
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    st.warning(f"⚠️ **Atenção:** Esta ação irá alterar o preço de **{len(df_preview)} produtos**. Certifique-se de que a simulação acima está correta.")
+                    
+                    if st.button("✅ CONFIRMAR REPRECIFICAÇÃO", type="primary"):
+                        try:
+                            with conn.session as sess:
+                                for i, row in df_preview.iterrows():
+                                    sess.execute(text("UPDATE premios SET custo = :c WHERE id = :id"), 
+                                        {"c": int(row['custo_novo']), "id": int(row['id'])})
+                                sess.commit()
+                            st.cache_data.clear()
+                            st.balloons()
+                            st.success("Preços atualizados com sucesso!")
+                            time.sleep(2)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao atualizar: {e}")
+
+        st.divider()
         df_p = run_query("SELECT * FROM premios ORDER BY id")
         edit_p = st.data_editor(
             df_p, use_container_width=True, num_rows="dynamic", key="ed_p",
