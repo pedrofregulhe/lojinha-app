@@ -17,6 +17,29 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 # --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
 
+# --- CRIAÇÃO DAS TABELAS DA RIFA (SE NÃO EXISTIREM) ---
+with conn.session as s:
+    s.execute(text("""
+        CREATE TABLE IF NOT EXISTS rifas (
+            id SERIAL PRIMARY KEY,
+            premio_id INT,
+            item_nome TEXT,
+            custo_ticket FLOAT,
+            status TEXT DEFAULT 'ativa', -- 'ativa' ou 'encerrada'
+            data_criacao TIMESTAMP DEFAULT NOW(),
+            ganhador_usuario TEXT
+        );
+    """))
+    s.execute(text("""
+        CREATE TABLE IF NOT EXISTS rifa_tickets (
+            id SERIAL PRIMARY KEY,
+            rifa_id INT,
+            usuario TEXT,
+            data_compra TIMESTAMP DEFAULT NOW()
+        );
+    """))
+    s.commit()
+
 # --- INICIALIZAÇÃO DA SESSÃO ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
 if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
@@ -68,16 +91,8 @@ css_comum = """
     }
 
     /* BANNER COMPACTO */
-    .header-style h2 {
-        font-size: 20px !important; 
-        font-weight: 700 !important;
-        margin-bottom: 2px !important;
-    }
-    .header-style p {
-        font-size: 12px !important; 
-        line-height: 1.3 !important;
-        opacity: 0.9 !important;
-    }
+    .header-style h2 { font-size: 20px !important; font-weight: 700 !important; margin-bottom: 2px !important; }
+    .header-style p { font-size: 12px !important; line-height: 1.3 !important; opacity: 0.9 !important; }
     .header-style .saldo-label { font-size: 10px !important; opacity: 0.8 !important; }
     .header-style .saldo-valor { font-size: 25px !important; }
 
@@ -103,49 +118,40 @@ css_comum = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
-    /* VITRINE */
-    [data-testid="stTabs"] div.stButton > button {
-        height: 50px !important;
-        min-height: 50px !important;
-        border-radius: 8px !important;
-        margin-top: auto; 
-    }
-    [data-testid="stTabs"] button[kind="primary"] {
-        background-color: transparent !important;
-        border: 2px solid #0066cc !important;
-        color: #0066cc !important;
-        box-shadow: none !important;
-    }
-    [data-testid="stTabs"] button[kind="primary"]:hover {
-        background-color: #e6f0ff !important;
-        transform: translateY(-2px);
-    }
+    /* VITRINE & RIFA */
+    [data-testid="stTabs"] div.stButton > button { height: 50px !important; min-height: 50px !important; border-radius: 8px !important; margin-top: auto; }
+    [data-testid="stTabs"] button[kind="primary"] { background-color: transparent !important; border: 2px solid #0066cc !important; color: #0066cc !important; box-shadow: none !important; }
+    [data-testid="stTabs"] button[kind="primary"]:hover { background-color: #e6f0ff !important; transform: translateY(-2px); }
     [data-testid="stTabs"] button[kind="primary"]:hover p { color: #0052a3 !important; }
+    [data-testid="stTabs"] button[kind="secondary"] { background-color: transparent !important; border: 1px solid #e0e0e0 !important; color: #555 !important; height: 50px !important; box-shadow: none !important; }
+    [data-testid="stTabs"] button[kind="secondary"]:hover { border-color: #999 !important; background-color: #f5f5f5 !important; }
 
-    [data-testid="stTabs"] button[kind="secondary"] {
-        background-color: transparent !important;
-        border: 1px solid #e0e0e0 !important;
-        color: #555 !important;
-        height: 50px !important;
-        box-shadow: none !important;
+    /* ESTILO ESPECIAL DA RIFA */
+    .rifa-card {
+        border: 2px solid #FFD700;
+        background: linear-gradient(to bottom right, #fffdf0, #ffffff);
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2);
+        margin-bottom: 20px;
+        text-align: center;
     }
-    [data-testid="stTabs"] button[kind="secondary"]:hover {
-        border-color: #999 !important;
-        background-color: #f5f5f5 !important;
+    .rifa-tag {
+        background-color: #FFD700;
+        color: #000;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 12px;
+        margin-bottom: 10px;
+        display: inline-block;
     }
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
 
     @media only screen and (max-width: 600px) {
-        .header-style {
-            padding: 12px !important;
-            text-align: center !important;
-            height: auto !important; 
-            min-height: auto !important;
-        }
-        div.stButton > button[kind="secondary"] {
-            height: 60px !important; 
-        }
+        .header-style { padding: 12px !important; text-align: center !important; height: auto !important; min-height: auto !important; }
+        div.stButton > button[kind="secondary"] { height: 60px !important; }
         .header-style h2 { font-size: 16px !important; } 
         .header-style p { font-size: 11px !important; }
         .header-style .saldo-valor { font-size: 22px !important; }
@@ -161,56 +167,16 @@ if not st.session_state.get('logado', False):
     }
     @keyframes gradient { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
     
-    [data-testid="stForm"] { 
-        background-color: #ffffff; 
-        padding: 40px; 
-        border-radius: 20px; 
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
-        border: none; 
-    }
-    
-    div.stButton > button[kind="secondary"] { 
-        background-color: transparent !important; 
-        color: white !important; 
-        border: 1px solid rgba(255,255,255,0.3) !important; 
-        border-radius: 20px !important;
-        height: auto !important; 
-        font-weight: 400 !important; 
-        font-size: 0.8rem !important;
-        box-shadow: none !important;
-        margin-top: 5px;
-    }
+    [data-testid="stForm"] { background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: none; }
+    div.stButton > button[kind="secondary"] { background-color: transparent !important; color: white !important; border: 1px solid rgba(255,255,255,0.3) !important; border-radius: 20px !important; height: auto !important; font-weight: 400 !important; font-size: 0.8rem !important; box-shadow: none !important; margin-top: 5px; }
     div.stButton > button[kind="secondary"] p { color: white !important; }
-
-    div.stButton > button[kind="secondary"]:hover { 
-        background-color: rgba(255,255,255,0.1) !important;
-        border-color: white !important;
-        transform: none !important;
-    }
-    
-    [data-testid="stForm"] div.stButton > button[kind="primary"] {
-        height: 50px !important;
-        background-color: #0066cc !important;
-        color: white !important;
-    }
+    div.stButton > button[kind="secondary"]:hover { background-color: rgba(255,255,255,0.1) !important; border-color: white !important; transform: none !important; }
+    [data-testid="stForm"] div.stButton > button[kind="primary"] { height: 50px !important; background-color: #0066cc !important; color: white !important; }
     """
 else:
     estilo_especifico = """
     .stApp { background-color: #f4f8fb; }
-    
-    .header-style { 
-        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
-        background-size: 400% 400%; 
-        animation: gradient 10s ease infinite; 
-        padding: 0 30px; 
-        border-radius: 15px; 
-        color: white; 
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
-        display: flex; 
-        flex-direction: column; 
-        justify-content: center; 
-        height: 110px !important; 
-    }
+    .header-style { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 10s ease infinite; padding: 0 30px; border-radius: 15px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; height: 110px !important; }
     """
 
 st.markdown(f"<style>{css_comum} {estilo_especifico}</style>", unsafe_allow_html=True)
@@ -246,7 +212,7 @@ def formatar_telefone(tel_bruto):
     if 10 <= len(apenas_numeros) <= 11: apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
-# --- GERENCIAMENTO DE SESSÃO (AUTO LOGIN) ---
+# --- GERENCIAMENTO DE SESSÃO ---
 def criar_sessao_persistente(usuario_id):
     token = str(uuid.uuid4())
     with conn.session as s:
@@ -279,7 +245,7 @@ def realizar_logout():
     st.session_state.clear()
     st.rerun()
 
-# --- FUNÇÕES DE ENVIO ---
+# --- FUNÇÕES DE ENVIO (INFOSMS) ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -322,7 +288,7 @@ def registrar_log(acao, detalhes):
         run_transaction("INSERT INTO logs (data, responsavel, acao, detalhes) VALUES (NOW(), :resp, :acao, :det)", {"resp": resp, "acao": acao, "det": detalhes})
     except Exception as e: print(f"Erro log: {e}")
 
-# --- LÓGICA ---
+# --- LÓGICA DE NEGÓCIO ---
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
     if df.empty: return False, None, None, 0, None, None
@@ -347,6 +313,22 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
         st.session_state['saldo_atual'] -= custo
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
+
+def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
+    try:
+        user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod})
+        if user_df.empty: return False, "Usuário não encontrado"
+        if float(user_df.iloc[0]['saldo']) < custo: return False, "Saldo insuficiente"
+        
+        with conn.session as s:
+            s.execute(text("UPDATE usuarios SET saldo = saldo - :custo WHERE LOWER(usuario) = LOWER(:u)"), {"custo": custo, "u": usuario_cod})
+            s.execute(text("INSERT INTO rifa_tickets (rifa_id, usuario) VALUES (:rid, :u)"), {"rid": rifa_id, "u": usuario_cod})
+            s.commit()
+        
+        st.session_state['saldo_atual'] -= custo
+        registrar_log("Rifa", f"Comprou ticket rifa {rifa_id}")
+        return True, "Ticket comprado com sucesso!"
+    except Exception as e: return False, f"Erro: {str(e)}"
 
 def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone):
     try:
@@ -427,6 +409,19 @@ def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
             if len(formatar_telefone(tel)) < 12: st.error("Telefone inválido!"); return
             if salvar_venda(usuario_cod, item_nome, custo, email, formatar_telefone(tel)):
                 st.balloons(); st.success("Sucesso!"); time.sleep(2); st.rerun()
+
+@st.dialog("🎟️ Comprar Ticket Rifa")
+def confirmar_compra_ticket(rifa_id, item_nome, custo, usuario_cod):
+    st.write(f"Você está comprando um ticket para sortear: **{item_nome}**")
+    st.write(f"Custo: **{custo} pts**")
+    st.warning("Quanto mais tickets comprar, maior a chance de ganhar! (Mas lembre-se: é difícil!)")
+    
+    if st.button("CONFIRMAR COMPRA", type="primary", use_container_width=True):
+        ok, msg = comprar_ticket_rifa(rifa_id, custo, usuario_cod)
+        if ok:
+            st.balloons(); st.success(msg); time.sleep(2); st.rerun()
+        else:
+            st.error(msg)
 
 @st.dialog("🔍 Detalhes do Produto")
 def ver_detalhes_produto(item, imagem, custo, descricao):
@@ -608,7 +603,7 @@ def tela_login():
 def tela_admin():
     st.subheader("🛠️ Painel Admin")
         
-    t1, t2, t3, t4 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs"])
+    t1, t2, t3, t4, t5 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs", "🎟️ Sorteio"])
     
     with t1:
         df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
@@ -633,11 +628,10 @@ def tela_admin():
             with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") 
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
-                    st.cache_data.clear() # Limpeza preventiva
+                    st.cache_data.clear() 
                     try:
                         with conn.session as s:
                             for i, row in edit_v.iterrows():
-                                # ATUALIZADO: Salva TODAS as colunas editáveis
                                 s.execute(text("UPDATE vendas SET item=:item, valor=:valor, codigo_vale=:c, status=:st, nome_real=:n, telefone=:t, email=:e WHERE id=:id"), 
                                          {"item": str(row['item']), "valor": float(row['valor']), "c": str(row['codigo_vale']), "st": str(row['status']), "n": str(row['nome_real']), "t": str(row['telefone']), "e": str(row.get('email', '')), "id": int(row['id'])})
                             s.commit()
@@ -702,7 +696,6 @@ def tela_admin():
                     try:
                         with conn.session as s:
                             for i, row in edit_u.iterrows():
-                                # ATUALIZADO: Salva todas as colunas
                                 s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
                                          {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": str(row['telefone']), "n": str(row['nome']), "tp": str(row['tipo']), "id": int(row['id'])})
                             s.commit()
@@ -720,7 +713,6 @@ def tela_admin():
                     else: processar_envios_dialog(sel, aviso_zap, aviso_sms, tipo_envio="usuarios")
 
     with t3:
-        # === AQUI ESTÁ A NOVA FUNÇÃO DE REPRECIFICAÇÃO EM MASSA (v3.5) ===
         with st.expander("⚙️ Reprecificação em Massa (Valor do Ponto)"):
             st.info("ℹ️ Utilize esta ferramenta para ajustar o preço de **TODOS** os produtos de uma só vez com base no valor do ponto em Reais.")
             
@@ -731,45 +723,22 @@ def tela_admin():
             if valor_ponto_atual != valor_ponto_novo:
                 st.write("---")
                 st.markdown("### 🔎 Simulação de Novos Preços")
-                
-                # Fator de conversão: (Ponto Antigo / Ponto Novo)
-                # Ex: 0.50 / 0.25 = 2 (Preço dobra em pontos)
-                # Ex: 0.50 / 1.00 = 0.5 (Preço cai pela metade em pontos)
                 fator = valor_ponto_atual / valor_ponto_novo
-                
                 df_preview = run_query("SELECT id, item, custo FROM premios")
                 if not df_preview.empty:
                     df_preview['custo_novo'] = (df_preview['custo'] * fator).astype(int)
                     df_preview['diferenca'] = df_preview['custo_novo'] - df_preview['custo']
-                    
-                    st.dataframe(
-                        df_preview[['item', 'custo', 'custo_novo', 'diferenca']], 
-                        column_config={
-                            "item": "Produto",
-                            "custo": "Pontos Atuais",
-                            "custo_novo": "Novos Pontos",
-                            "diferenca": "Diferença"
-                        },
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                    
-                    st.warning(f"⚠️ **Atenção:** Esta ação irá alterar o preço de **{len(df_preview)} produtos**. Certifique-se de que a simulação acima está correta.")
-                    
+                    st.dataframe(df_preview[['item', 'custo', 'custo_novo', 'diferenca']], use_container_width=True, hide_index=True)
+                    st.warning(f"⚠️ **Atenção:** Esta ação irá alterar o preço de **{len(df_preview)} produtos**.")
                     if st.button("✅ CONFIRMAR REPRECIFICAÇÃO", type="primary"):
                         try:
                             with conn.session as sess:
                                 for i, row in df_preview.iterrows():
-                                    sess.execute(text("UPDATE premios SET custo = :c WHERE id = :id"), 
-                                        {"c": int(row['custo_novo']), "id": int(row['id'])})
+                                    sess.execute(text("UPDATE premios SET custo = :c WHERE id = :id"), {"c": int(row['custo_novo']), "id": int(row['id'])})
                                 sess.commit()
                             st.cache_data.clear()
-                            st.balloons()
-                            st.success("Preços atualizados com sucesso!")
-                            time.sleep(2)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao atualizar: {e}")
+                            st.balloons(); st.success("Preços atualizados com sucesso!"); time.sleep(2); st.rerun()
+                        except Exception as e: st.error(f"Erro ao atualizar: {e}")
 
         st.divider()
         df_p = run_query("SELECT * FROM premios ORDER BY id")
@@ -782,13 +751,11 @@ def tela_admin():
             try:
                 with conn.session as sess:
                     for i, row in edit_p.iterrows():
-                        # Lógica Inteligente: Se tem ID, atualiza. Se não tem, insere (Cria Novo).
                         if pd.notna(row['id']): 
                             sess.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), 
                                 {"i": str(row['item']), "im": str(row['imagem']), "c": float(row['custo']), "d": str(row.get('descricao', '')), "id": int(row['id'])})
                         else:
-                            # INSERT para novos prêmios
-                            if row['item']: # Só cria se tiver nome
+                            if row['item']:
                                 sess.execute(text("INSERT INTO premios (item, imagem, custo, descricao) VALUES (:i, :im, :c, :d)"),
                                     {"i": str(row['item']), "im": str(row['imagem']), "c": float(row['custo']), "d": str(row.get('descricao', ''))})
                     sess.commit()
@@ -799,6 +766,67 @@ def tela_admin():
 
     with t4:
         st.dataframe(run_query("SELECT * FROM logs ORDER BY id DESC LIMIT 50"), use_container_width=True)
+
+    with t5:
+        st.markdown("### 🎟️ Gestão de Sorteios/Rifas")
+        rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
+        
+        if not rifa_ativa.empty:
+            r = rifa_ativa.iloc[0]
+            st.success(f"🔥 Sorteio Ativo: **{r['item_nome']}** (Custo: {r['custo_ticket']} pts)")
+            
+            # Stats
+            qtd_tickets = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])})
+            total = qtd_tickets.iloc[0]['qtd']
+            st.metric("Tickets Vendidos", total)
+            
+            st.divider()
+            if st.button("🎲 SORTEAR VENCEDOR", type="primary"):
+                if total == 0:
+                    st.error("Ninguém comprou ticket ainda!")
+                else:
+                    # Sorteio
+                    tickets = run_query("SELECT usuario FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])})
+                    vencedor = random.choice(tickets['usuario'].tolist())
+                    
+                    # Pegar dados do vencedor
+                    user_data = run_query("SELECT * FROM usuarios WHERE usuario = :u", {"u": vencedor})
+                    nome_real = user_data.iloc[0]['nome']
+                    telefone = user_data.iloc[0]['telefone']
+                    
+                    # Salvar "Venda" gratuita
+                    with conn.session as s:
+                        s.execute(text("INSERT INTO vendas (data, usuario, item, valor, status, email, nome_real, telefone) VALUES (NOW(), :u, :item, 0, 'Sorteio', '', :n, :t)"),
+                            {"u": vencedor, "item": f"GANHADOR RIFA: {r['item_nome']}", "n": nome_real, "t": telefone})
+                        s.execute(text("UPDATE rifas SET status = 'encerrada', ganhador_usuario = :u WHERE id = :id"), {"u": vencedor, "id": int(r['id'])})
+                        s.commit()
+                    
+                    st.balloons()
+                    st.markdown(f"## 🏆 O VENCEDOR É: **{nome_real}** ({vencedor})")
+                    registrar_log("Sorteio", f"Vencedor: {vencedor} - Item: {r['item_nome']}")
+                    time.sleep(5)
+                    st.rerun()
+            
+            if st.button("Cancelar Sorteio (Sem Vencedor)"):
+                run_transaction("UPDATE rifas SET status = 'cancelada' WHERE id = :id", {"id": int(r['id'])})
+                st.warning("Cancelado.")
+                st.rerun()
+                
+        else:
+            st.info("Nenhum sorteio ativo no momento. Configure um abaixo:")
+            df_premios = run_query("SELECT id, item FROM premios")
+            opcoes = {f"{row['id']} - {row['item']}": row['id'] for i, row in df_premios.iterrows()}
+            
+            escolha = st.selectbox("Escolha o Prêmio para Sortear:", list(opcoes.keys()))
+            custo_rifa = st.number_input("Custo do Ticket (Pontos)", min_value=1, value=50)
+            
+            if st.button("🚀 INICIAR SORTEIO", type="primary"):
+                premio_id = opcoes[escolha]
+                nome_premio = escolha.split(" - ", 1)[1]
+                run_transaction("INSERT INTO rifas (premio_id, item_nome, custo_ticket, status) VALUES (:pid, :nome, :custo, 'ativa')", 
+                    {"pid": premio_id, "nome": nome_premio, "custo": custo_rifa})
+                st.success("Sorteio Criado!")
+                st.rerun()
 
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
@@ -839,6 +867,35 @@ def tela_principal():
     
     if tipo == 'admin': tela_admin()
     else:
+        # === MÓDULO DE RIFA NO TOPO (USUÁRIO) ===
+        rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
+        if not rifa_ativa.empty:
+            r = rifa_ativa.iloc[0]
+            # Busca imagem do prêmio
+            img_premio = ""
+            df_p_img = run_query("SELECT imagem, descricao FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
+            if not df_p_img.empty:
+                img_premio = df_p_img.iloc[0]['imagem']
+            
+            st.markdown(f"""
+            <div class="rifa-card">
+                <div class="rifa-tag">🍀 SORTEIO ATIVO</div>
+                <h3 style="margin:0; color:#333;">{r['item_nome']}</h3>
+                <p style="font-size:14px; color:#666;">Participe do sorteio exclusivo deste prêmio incrível!</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            c_img_rifa, c_info_rifa = st.columns([1, 2])
+            with c_img_rifa:
+                if img_premio: st.image(processar_link_imagem(img_premio), use_container_width=True)
+            with c_info_rifa:
+                st.markdown(f"#### Custo do Ticket: **{r['custo_ticket']} pts**")
+                st.info("Você pode comprar quantos tickets quiser para aumentar suas chances!")
+                if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary", use_container_width=True):
+                    confirmar_compra_ticket(int(r['id']), r['item_nome'], r['custo_ticket'], u_cod)
+            st.divider()
+
+        # === CATÁLOGO NORMAL ===
         t1, t2, t3 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates", "🏆 Ranking"])
         with t1:
             df_p = run_query("SELECT * FROM premios ORDER BY id") 
