@@ -17,29 +17,6 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 # --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
 
-# --- CRIAÇÃO DAS TABELAS DA RIFA (SE NÃO EXISTIREM) ---
-with conn.session as s:
-    s.execute(text("""
-        CREATE TABLE IF NOT EXISTS rifas (
-            id SERIAL PRIMARY KEY,
-            premio_id INT,
-            item_nome TEXT,
-            custo_ticket FLOAT,
-            status TEXT DEFAULT 'ativa', -- 'ativa' ou 'encerrada'
-            data_criacao TIMESTAMP DEFAULT NOW(),
-            ganhador_usuario TEXT
-        );
-    """))
-    s.execute(text("""
-        CREATE TABLE IF NOT EXISTS rifa_tickets (
-            id SERIAL PRIMARY KEY,
-            rifa_id INT,
-            usuario TEXT,
-            data_compra TIMESTAMP DEFAULT NOW()
-        );
-    """))
-    s.commit()
-
 # --- INICIALIZAÇÃO DA SESSÃO ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
 if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
@@ -245,7 +222,7 @@ def realizar_logout():
     st.session_state.clear()
     st.rerun()
 
-# --- FUNÇÕES DE ENVIO (INFOSMS) ---
+# --- FUNÇÕES DE ENVIO ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -253,9 +230,7 @@ def enviar_sms(telefone, mensagem_texto):
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
         if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
-        
         payload = { "messages": [ { "from": "InfoSMS", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
-        
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code not in [200, 201]: return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
@@ -318,14 +293,20 @@ def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
     try:
         user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod})
         if user_df.empty: return False, "Usuário não encontrado"
-        if float(user_df.iloc[0]['saldo']) < custo: return False, "Saldo insuficiente"
+        
+        # --- CORREÇÃO DO ERRO 'np' ---
+        custo_real = float(custo) # Converte explicitamente para float Python
+        
+        if float(user_df.iloc[0]['saldo']) < custo_real: return False, "Saldo insuficiente"
         
         with conn.session as s:
-            s.execute(text("UPDATE usuarios SET saldo = saldo - :custo WHERE LOWER(usuario) = LOWER(:u)"), {"custo": custo, "u": usuario_cod})
-            s.execute(text("INSERT INTO rifa_tickets (rifa_id, usuario) VALUES (:rid, :u)"), {"rid": rifa_id, "u": usuario_cod})
+            s.execute(text("UPDATE usuarios SET saldo = saldo - :custo WHERE LOWER(usuario) = LOWER(:u)"), 
+                      {"custo": custo_real, "u": usuario_cod})
+            s.execute(text("INSERT INTO rifa_tickets (rifa_id, usuario) VALUES (:rid, :u)"), 
+                      {"rid": int(rifa_id), "u": usuario_cod})
             s.commit()
         
-        st.session_state['saldo_atual'] -= custo
+        st.session_state['saldo_atual'] -= custo_real
         registrar_log("Rifa", f"Comprou ticket rifa {rifa_id}")
         return True, "Ticket comprado com sucesso!"
     except Exception as e: return False, f"Erro: {str(e)}"
@@ -867,37 +848,40 @@ def tela_principal():
     
     if tipo == 'admin': tela_admin()
     else:
-        # === MÓDULO DE RIFA NO TOPO (USUÁRIO) ===
-        rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
-        if not rifa_ativa.empty:
-            r = rifa_ativa.iloc[0]
-            # Busca imagem do prêmio
-            img_premio = ""
-            df_p_img = run_query("SELECT imagem, descricao FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
-            if not df_p_img.empty:
-                img_premio = df_p_img.iloc[0]['imagem']
-            
-            st.markdown(f"""
-            <div class="rifa-card">
-                <div class="rifa-tag">🍀 SORTEIO ATIVO</div>
-                <h3 style="margin:0; color:#333;">{r['item_nome']}</h3>
-                <p style="font-size:14px; color:#666;">Participe do sorteio exclusivo deste prêmio incrível!</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            c_img_rifa, c_info_rifa = st.columns([1, 2])
-            with c_img_rifa:
-                if img_premio: st.image(processar_link_imagem(img_premio), use_container_width=True)
-            with c_info_rifa:
-                st.markdown(f"#### Custo do Ticket: **{r['custo_ticket']} pts**")
-                st.info("Você pode comprar quantos tickets quiser para aumentar suas chances!")
-                if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary", use_container_width=True):
-                    confirmar_compra_ticket(int(r['id']), r['item_nome'], r['custo_ticket'], u_cod)
-            st.divider()
-
-        # === CATÁLOGO NORMAL ===
-        t1, t2, t3 = st.tabs(["🎁 Catálogo", "📜 Meus Resgates", "🏆 Ranking"])
+        # === LAYOUT REESTRUTURADO: 4 ABAS ===
+        t1, t2, t3, t4 = st.tabs(["🍀 Sorteio", "🎁 Catálogo", "📜 Meus Resgates", "🏆 Ranking"])
+        
+        # --- ABA 1: SORTEIO ---
         with t1:
+            rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
+            if not rifa_ativa.empty:
+                r = rifa_ativa.iloc[0]
+                img_premio = ""
+                df_p_img = run_query("SELECT imagem, descricao FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
+                if not df_p_img.empty:
+                    img_premio = df_p_img.iloc[0]['imagem']
+                
+                st.markdown(f"""
+                <div class="rifa-card">
+                    <div class="rifa-tag">🍀 SORTEIO ATIVO</div>
+                    <h3 style="margin:0; color:#333;">{r['item_nome']}</h3>
+                    <p style="font-size:14px; color:#666;">Participe do sorteio exclusivo deste prêmio incrível!</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                c_img_rifa, c_info_rifa = st.columns([1, 2])
+                with c_img_rifa:
+                    if img_premio: st.image(processar_link_imagem(img_premio), use_container_width=True)
+                with c_info_rifa:
+                    st.markdown(f"#### Custo do Ticket: **{r['custo_ticket']} pts**")
+                    st.info("Você pode comprar quantos tickets quiser para aumentar suas chances!")
+                    if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary", use_container_width=True):
+                        confirmar_compra_ticket(int(r['id']), r['item_nome'], r['custo_ticket'], u_cod)
+            else:
+                st.info("Nenhum sorteio ativo no momento. Fique de olho no grupo do WhatsApp para novidades!")
+
+        # --- ABA 2: CATÁLOGO ---
+        with t2:
             df_p = run_query("SELECT * FROM premios ORDER BY id") 
             if not df_p.empty:
                 cols = st.columns(4)
@@ -917,7 +901,8 @@ def tela_principal():
                                 if sld >= row['custo']:
                                     if st.button("RESGATAR", key=f"b_{row['id']}", use_container_width=True, type="primary"):
                                         confirmar_resgate_dialog(row['item'], row['custo'], u_cod)
-        with t2:
+        # --- ABA 3: RESGATES ---
+        with t3:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
             meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod})
             if not meus_pedidos.empty:
@@ -946,7 +931,8 @@ def tela_principal():
                     st.toast("Status de recebimento atualizado!", icon="✅"); time.sleep(1); st.rerun()
             else: st.write("Nenhum pedido encontrado.")
 
-        with t3:
+        # --- ABA 4: RANKING ---
+        with t4:
             st.markdown("### 🏆 Top Users (Histórico)")
             st.caption("Este ranking considera todos os pontos já ganhos, independente se já foram gastos ou zerados.")
             df_rank = run_query("SELECT usuario, pontos_historico FROM usuarios WHERE tipo NOT IN ('admin', 'staff') ORDER BY pontos_historico DESC LIMIT 10")
