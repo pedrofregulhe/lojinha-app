@@ -556,13 +556,13 @@ def tela_login():
 
         else:
             with st.form("f_login"):
-                # AQUI FOI FEITA A ALTERAÇÃO PEDIDA (TEXTO E MARGIN)
+                # --- AQUI ESTÁ O AJUSTE DE ESPAÇAMENTO ---
                 st.markdown("""
                     <div style="text-align: center; margin-bottom: 20px;">
-                        <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: 0px;">
+                        <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: -15px; line-height: 1;">
                             Lojinha Culli's
                         </h1>
-                        <p style="color: #555555; font-size: 0.9rem; line-height: 1.4; font-weight: 400; margin: 0; margin-top: 2px;">
+                        <p style="color: #555555; font-size: 0.9rem; line-height: 1.2; font-weight: 400; margin: 0; margin-top: 0px;">
                             Realize seu login para resgatar seus pontos<br>e acompanhar seus pedidos.
                         </p>
                     </div>
