@@ -41,7 +41,6 @@ css_comum = """
         color: #31333F !important;
         background-color: #ffffff !important;
     }
-    /* Textos do Banner PRECISAM ser brancos */
     .header-style h2, .header-style p, .header-style span, .header-style div {
         color: white !important;
     }
@@ -53,7 +52,10 @@ css_comum = """
     .stDeployButton { display: none; }
     .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
     
-    [data-testid="stImage"] { display: flex; justify-content: center; }
+    [data-testid="stImage"] {
+        display: flex;
+        justify-content: center;
+    }
     [data-testid="stImage"] img { 
         height: 180px !important; 
         width: auto !important;
@@ -69,21 +71,6 @@ css_comum = """
         height: 100%;
     }
 
-    /* === AJUSTE DE FONTE DO BANNER (DESKTOP) === */
-    .header-style h2 {
-        font-size: 22px !important; /* Menor que antes */
-        font-weight: 700 !important;
-        margin-bottom: 5px !important;
-    }
-    .header-style p {
-        font-size: 13px !important; /* Bem menor e delicado */
-        line-height: 1.3 !important;
-        opacity: 0.95 !important;
-    }
-    .header-style .saldo-label { font-size: 11px !important; }
-    .header-style .saldo-valor { font-size: 28px !important; }
-
-    /* BOTÕES */
     div.stButton > button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
@@ -94,6 +81,7 @@ css_comum = """
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
+    
     div.stButton > button[kind="secondary"] { 
         background-color: #ffffff !important; 
         color: #003366 !important; 
@@ -105,13 +93,13 @@ css_comum = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
-    /* VITRINE */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
         border-radius: 8px !important;
         margin-top: auto; 
     }
+
     [data-testid="stTabs"] button[kind="primary"] {
         background-color: transparent !important;
         border: 2px solid #0066cc !important;
@@ -138,10 +126,9 @@ css_comum = """
 
     .big-success { padding: 20px; background-color: #d4edda; color: #155724; border-radius: 10px; font-weight: bold; text-align: center; border: 1px solid #c3e6cb; margin-bottom: 10px; }
 
-    /* === RESPONSIVIDADE (MOBILE) === */
     @media only screen and (max-width: 600px) {
         .header-style {
-            padding: 15px !important;
+            padding: 20px !important;
             text-align: center !important;
             height: auto !important; 
             min-height: auto !important;
@@ -149,10 +136,9 @@ css_comum = """
         div.stButton > button[kind="secondary"] {
             height: 60px !important; 
         }
-        /* FONTES AINDA MENORES NO CELULAR */
-        .header-style h2 { font-size: 18px !important; }
-        .header-style p { font-size: 12px !important; }
-        .header-style .saldo-valor { font-size: 24px !important; }
+        .header-style h2 { font-size: 1.5rem !important; }
+        .header-style p { font-size: 0.9rem !important; }
+        .header-style span { font-size: 1.2rem !important; }
     }
 """
 
@@ -292,7 +278,8 @@ def enviar_sms(telefone, mensagem_texto):
         tel_final = formatar_telefone(telefone)
         if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
         
-        payload = { "messages": [ { "from": "LojinhaCulli", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
+        # MUDANÇA: USANDO InfoSMS PARA EVITAR BLOQUEIO DE SPAM NO BRASIL
+        payload = { "messages": [ { "from": "InfoSMS", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
         
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
@@ -501,7 +488,8 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                     if tipo_envio == "vendas":
                         texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}."
                     else:
-                        texto = f"Ola {nome}, saldo atualizado! Voce tem {var1} pts."
+                        # === AQUI ESTÁ A CORREÇÃO DA MENSAGEM DO SALDO ===
+                        texto = f"Lojinha Culli: Ola {nome}, sua pontuacao foi atualizada e seu saldo atual e de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
                     
                     ok, det, cod = enviar_sms(tel, texto)
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
@@ -570,7 +558,6 @@ def tela_login():
 
         else:
             with st.form("f_login"):
-                # --- AQUI ESTÁ O AJUSTE DE ESPAÇAMENTO ---
                 st.markdown("""
                     <div style="text-align: center; margin-bottom: 20px;">
                         <h1 style="color: #003366; font-weight: 900; font-size: 2.8rem; margin: 0; margin-bottom: -15px; line-height: 1;">
