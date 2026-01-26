@@ -28,23 +28,19 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO ---
+# --- CSS DINÂMICO (REFINADO PARA ALINHAMENTO) ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
     
-    /* === CORREÇÃO DE MODO ESCURO (FORÇA TEXTO ESCURO EM FUNDO CLARO) === */
+    /* === CORREÇÃO DE MODO ESCURO === */
     html, body, [class*="css"], .stMarkdown, .stText, p, h1, h2, h3, h4, span, div {
         font-family: 'Poppins', sans-serif;
-        color: #31333F !important; /* Força cor cinza escuro padrão */
+        color: #31333F !important; 
     }
-    
-    /* Garante que o texto dentro de inputs seja legível */
     input, textarea, select {
         color: #31333F !important;
         background-color: #ffffff !important;
     }
-
-    /* Exceção: Textos que PRECISAM ser brancos (Banner e Botões Primários) */
     .header-style h2, .header-style p, .header-style span, .header-style div {
         color: white !important;
     }
@@ -56,15 +52,30 @@ css_comum = """
     .stDeployButton { display: none; }
     .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
     
-    [data-testid="stImage"] img { height: 150px !important; object-fit: contain !important; border-radius: 10px; }
+    /* === ALINHAMENTO DO CATÁLOGO (FIX) === */
+    /* 1. Força todas as imagens a terem EXATAMENTE a mesma altura e comportamento */
+    [data-testid="stImage"] {
+        display: flex;
+        justify-content: center;
+    }
+    [data-testid="stImage"] img { 
+        height: 180px !important; /* Altura fixa maior para padronizar */
+        width: auto !important;
+        max-width: 100%;
+        object-fit: contain !important; 
+        border-radius: 10px; 
+    }
     
+    /* 2. Garante que as colunas estiquem para alinhar o conteúdo */
     [data-testid="column"] {
         display: flex;
         flex-direction: column;
-        justify-content: center;
         height: 100%;
     }
 
+    /* === BOTÕES E HEADER ALINHADOS NO PC === */
+    
+    /* Botão Primário (Geral) */
     div.stButton > button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
@@ -76,42 +87,43 @@ css_comum = """
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     
+    /* Botão Secundário (Header) - FIXADO EM 110px PARA ALINHAR COM BANNER */
     div.stButton > button[kind="secondary"] { 
         background-color: #ffffff !important; 
         color: #003366 !important; 
-        border-radius: 12px; 
+        border-radius: 12px !important; 
         border: 2px solid #eef2f6 !important; 
-        height: 100px; 
+        height: 110px !important; /* ALINHAMENTO PERFEITO PC */
         font-weight: 600; 
         width: 100%; 
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
 
-    /* REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) */
+    /* === REGRAS ESPECÍFICAS PARA A VITRINE (DENTRO DAS ABAS) === */
+    
+    /* Reseta altura dos botões do catálogo para 50px */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
         border-radius: 8px !important;
-        box-shadow: none !important;
-        transition: all 0.2s ease;
+        margin-top: auto; /* Empurra o botão para o final do card */
     }
 
+    /* Botão RESGATAR (Outline Azul) */
     [data-testid="stTabs"] button[kind="primary"] {
         background-color: transparent !important;
         border: 2px solid #0066cc !important;
         color: #0066cc !important;
         box-shadow: none !important;
     }
-    /* Correção do Hover do botão transparente para o texto ficar azul escuro e não branco sumido */
-    [data-testid="stTabs"] button[kind="primary"]:hover p {
-        color: #0052a3 !important; 
-    }
     [data-testid="stTabs"] button[kind="primary"]:hover {
         background-color: #e6f0ff !important;
-        border-color: #0052a3 !important;
         transform: translateY(-2px);
     }
+    /* Fix para texto do hover não sumir */
+    [data-testid="stTabs"] button[kind="primary"]:hover p { color: #0052a3 !important; }
 
+    /* Botão DETALHES (Cinza) */
     [data-testid="stTabs"] button[kind="secondary"] {
         background-color: transparent !important;
         border: 1px solid #e0e0e0 !important;
@@ -128,15 +140,16 @@ css_comum = """
 
     /* === RESPONSIVIDADE (MOBILE) === */
     @media only screen and (max-width: 600px) {
+        /* No celular, removemos a altura fixa para não quebrar o layout */
         .header-style {
             padding: 20px !important;
             text-align: center !important;
+            height: auto !important; /* Altura automática no mobile */
+            min-height: auto !important;
         }
-        /* No celular, botões voltam ao tamanho normal para não ocupar a tela toda */
         div.stButton > button[kind="secondary"] {
-            height: 60px !important; 
+            height: 60px !important; /* Altura normal de botão no mobile */
         }
-        /* Ajuste de tamanho de fonte no Banner */
         .header-style h2 { font-size: 1.5rem !important; }
         .header-style p { font-size: 0.9rem !important; }
         .header-style span { font-size: 1.2rem !important; }
@@ -171,7 +184,6 @@ if not st.session_state.get('logado', False):
         box-shadow: none !important;
         margin-top: 5px;
     }
-    /* Exceção para Links Login: Texto Branco */
     div.stButton > button[kind="secondary"] p { color: white !important; }
 
     div.stButton > button[kind="secondary"]:hover { 
@@ -194,15 +206,14 @@ else:
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400%; 
         animation: gradient 10s ease infinite; 
-        padding: 15px 25px; 
+        padding: 0 30px; /* Padding lateral apenas */
         border-radius: 15px; 
         color: white; 
         box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
         display: flex; 
         flex-direction: column; 
-        justify-content: center; 
-        min-height: 100px; /* Mudança: min-height permite crescer se o texto vazar */
-        height: auto;      /* Altura automática */
+        justify-content: center; /* Centraliza Verticalmente */
+        height: 110px !important; /* ALTURA FIXA IGUAL AOS BOTÕES (PC) */
     }
     """
 
