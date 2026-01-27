@@ -17,17 +17,6 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 # --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
 
-# --- INICIALIZAÇÃO DA SESSÃO ---
-if 'logado' not in st.session_state: st.session_state['logado'] = False
-if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
-if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
-if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
-if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
-
-if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificacao_2fa'] = False
-if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
-if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
-
 # --- CSS DINÂMICO ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
@@ -103,7 +92,7 @@ css_comum = """
     [data-testid="stTabs"] button[kind="secondary"] { background-color: transparent !important; border: 1px solid #e0e0e0 !important; color: #555 !important; height: 50px !important; box-shadow: none !important; }
     [data-testid="stTabs"] button[kind="secondary"]:hover { border-color: #999 !important; background-color: #f5f5f5 !important; }
 
-    /* ESTILO ESPECIAL DA RIFA */
+    /* ESTILO ESPECIAL DA RIFA ATIVA */
     .rifa-card {
         border: 2px solid #FFD700;
         background: linear-gradient(to bottom right, #fffdf0, #ffffff);
@@ -116,6 +105,27 @@ css_comum = """
     .rifa-tag {
         background-color: #FFD700;
         color: #000;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 12px;
+        margin-bottom: 10px;
+        display: inline-block;
+    }
+
+    /* ESTILO ESPECIAL DA RIFA VENCEDOR */
+    .winner-card {
+        border: 2px solid #28a745;
+        background: linear-gradient(to bottom right, #f0fff4, #ffffff);
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.2);
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    .winner-tag {
+        background-color: #28a745;
+        color: #fff;
         padding: 5px 15px;
         border-radius: 20px;
         font-weight: bold;
@@ -222,7 +232,7 @@ def realizar_logout():
     st.session_state.clear()
     st.rerun()
 
-# --- FUNÇÕES DE ENVIO ---
+# --- FUNÇÕES DE ENVIO (INFOSMS) ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
@@ -397,7 +407,6 @@ def confirmar_compra_ticket(rifa_id, item_nome, custo, usuario_cod):
     st.write(f"Você está comprando um ticket para sortear: **{item_nome}**")
     st.write(f"Custo: **{custo} pts**")
     
-    # MUDANÇA: Texto incentivador apenas
     st.info("Quanto mais tickets comprar, maior a chance de ganhar!")
     
     if st.button("CONFIRMAR COMPRA", type="primary", use_container_width=True):
@@ -406,6 +415,16 @@ def confirmar_compra_ticket(rifa_id, item_nome, custo, usuario_cod):
             st.balloons(); st.success(msg); time.sleep(2); st.rerun()
         else:
             st.error(msg)
+
+@st.dialog("🎉 TEMOS UM VENCEDOR!")
+def mostrar_vencedor_dialog(nome_vencedor, usuario_vencedor, nome_premio, imagem_premio):
+    st.balloons()
+    if imagem_premio:
+        st.image(processar_link_imagem(imagem_premio), width=300)
+    st.markdown(f"<h2 style='text-align:center; color:#28a745;'>{nome_vencedor}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align:center;'>({usuario_vencedor})</p>", unsafe_allow_html=True)
+    st.success(f"Parabéns! Você ganhou: {nome_premio}")
+    st.info("O prêmio já foi adicionado aos seus pedidos.")
 
 @st.dialog("🔍 Detalhes do Produto")
 def ver_detalhes_produto(item, imagem, custo, descricao):
@@ -612,7 +631,7 @@ def tela_admin():
             with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") 
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
-                    st.cache_data.clear() # Limpeza preventiva
+                    st.cache_data.clear() 
                     try:
                         with conn.session as s:
                             for i, row in edit_v.iterrows():
@@ -778,22 +797,34 @@ def tela_admin():
                     nome_real = user_data.iloc[0]['nome']
                     telefone = user_data.iloc[0]['telefone']
                     
-                    # Salvar "Venda" gratuita
+                    # MUDANÇA: MOSTRAR MODAL E DELETAR TICKETS
+                    
+                    # 1. Deletar tickets (para não contar na proxima)
                     with conn.session as s:
+                        s.execute(text("DELETE FROM rifa_tickets WHERE rifa_id = :rid"), {"rid": int(r['id'])})
+                        # 2. Registrar ganhador na tabela de rifa e de vendas
                         s.execute(text("INSERT INTO vendas (data, usuario, item, valor, status, email, nome_real, telefone) VALUES (NOW(), :u, :item, 0, 'Sorteio', '', :n, :t)"),
                             {"u": vencedor, "item": f"GANHADOR RIFA: {r['item_nome']}", "n": nome_real, "t": telefone})
                         s.execute(text("UPDATE rifas SET status = 'encerrada', ganhador_usuario = :u WHERE id = :id"), {"u": vencedor, "id": int(r['id'])})
                         s.commit()
                     
-                    st.balloons()
-                    st.markdown(f"## 🏆 O VENCEDOR É: **{nome_real}** ({vencedor})")
+                    # 3. Mostrar Modal Bonita
+                    img_premio = ""
+                    df_p_img = run_query("SELECT imagem FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
+                    if not df_p_img.empty: img_premio = df_p_img.iloc[0]['imagem']
+                    
+                    mostrar_vencedor_dialog(nome_real, vencedor, r['item_nome'], img_premio)
+                    
                     registrar_log("Sorteio", f"Vencedor: {vencedor} - Item: {r['item_nome']}")
                     time.sleep(5)
                     st.rerun()
             
             if st.button("Cancelar Sorteio (Sem Vencedor)"):
-                run_transaction("UPDATE rifas SET status = 'cancelada' WHERE id = :id", {"id": int(r['id'])})
-                st.warning("Cancelado.")
+                with conn.session as s:
+                    s.execute(text("DELETE FROM rifa_tickets WHERE rifa_id = :rid"), {"rid": int(r['id'])})
+                    s.execute(text("UPDATE rifas SET status = 'cancelada' WHERE id = :id"), {"id": int(r['id'])})
+                    s.commit()
+                st.warning("Cancelado e tickets limpos.")
                 st.rerun()
                 
         else:
@@ -879,6 +910,8 @@ def tela_principal():
         # --- ABA 2: SORTEIO ---
         with t2:
             rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
+            
+            # CASO 1: TEM RIFA ATIVA -> MOSTRA OPÇÃO DE COMPRA
             if not rifa_ativa.empty:
                 r = rifa_ativa.iloc[0]
                 img_premio = ""
@@ -902,9 +935,33 @@ def tela_principal():
                     st.info("Você pode comprar quantos tickets quiser para aumentar suas chances!")
                     if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary", use_container_width=True):
                         confirmar_compra_ticket(int(r['id']), r['item_nome'], r['custo_ticket'], u_cod)
+            
+            # CASO 2: NÃO TEM ATIVA, MAS TEM HISTÓRICO -> MOSTRA O ÚLTIMO VENCEDOR
             else:
-                # MUDANÇA: REMOVIDA A MENSAGEM DO WHATSAPP
-                st.info("Nenhum sorteio ativo no momento.")
+                rifa_encerrada = run_query("SELECT * FROM rifas WHERE status = 'encerrada' ORDER BY id DESC LIMIT 1")
+                if not rifa_encerrada.empty:
+                    r_fim = rifa_encerrada.iloc[0]
+                    # Busca imagem
+                    img_premio_fim = ""
+                    df_p_img_fim = run_query("SELECT imagem FROM premios WHERE id = :pid", {"pid": int(r_fim['premio_id'])})
+                    if not df_p_img_fim.empty: img_premio_fim = df_p_img_fim.iloc[0]['imagem']
+                    
+                    # Busca nome real do ganhador
+                    nome_ganhador = r_fim['ganhador_usuario']
+                    df_ganhador = run_query("SELECT nome FROM usuarios WHERE usuario = :u", {"u": nome_ganhador})
+                    if not df_ganhador.empty: nome_ganhador = df_ganhador.iloc[0]['nome']
+
+                    st.markdown(f"""
+                    <div class="winner-card">
+                        <div class="winner-tag">🏆 HALL DA FAMA</div>
+                        <h3 style="margin:0; color:#333;">Parabéns, {nome_ganhador}!</h3>
+                        <p style="font-size:14px; color:#666;">Foi o ganhador do último sorteio: <b>{r_fim['item_nome']}</b></p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if img_premio_fim: st.image(processar_link_imagem(img_premio_fim), width=300)
+                
+                else:
+                    st.info("Nenhum sorteio ativo no momento.")
 
         # --- ABA 3: RESGATES ---
         with t3:
