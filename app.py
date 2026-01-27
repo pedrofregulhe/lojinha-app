@@ -19,7 +19,7 @@ conn = st.connection("postgresql", type="sql")
 
 # --- CSS DINÂMICO ---
 css_comum = """
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
     html, body, [class*="css"], .stMarkdown, .stText, p, h1, h2, h3, h4, span, div {
         font-family: 'Poppins', sans-serif;
@@ -56,11 +56,23 @@ css_comum = """
         height: 100%;
     }
 
-    /* BANNER COMPACTO */
+    /* BANNER COMPACTO E SALDO NEGRITO */
     .header-style h2 { font-size: 20px !important; font-weight: 700 !important; margin-bottom: 2px !important; }
     .header-style p { font-size: 12px !important; line-height: 1.3 !important; opacity: 0.9 !important; }
-    .header-style .saldo-label { font-size: 10px !important; opacity: 0.8 !important; }
-    .header-style .saldo-valor { font-size: 25px !important; }
+    
+    /* ESTILO DO SALDO (ATUALIZADO) */
+    .header-style .saldo-label { 
+        font-size: 11px !important; 
+        opacity: 0.9 !important; 
+        text-transform: uppercase; 
+        font-weight: 600 !important;
+        letter-spacing: 1px;
+    }
+    .header-style .saldo-valor { 
+        font-size: 30px !important; 
+        font-weight: 900 !important; /* ULTRA NEGRITO */
+        text-shadow: 0 2px 4px rgba(0,0,0,0.15); /* Sombra para destaque */
+    }
 
     /* BOTÕES */
     div.stButton > button[kind="primary"] { 
@@ -92,7 +104,7 @@ css_comum = """
     [data-testid="stTabs"] button[kind="secondary"] { background-color: transparent !important; border: 1px solid #e0e0e0 !important; color: #555 !important; height: 50px !important; box-shadow: none !important; }
     [data-testid="stTabs"] button[kind="secondary"]:hover { border-color: #999 !important; background-color: #f5f5f5 !important; }
 
-    /* ESTILO ESPECIAL DA RIFA ATIVA */
+    /* ESTILO ESPECIAL DA RIFA */
     .rifa-card {
         border: 2px solid #FFD700;
         background: linear-gradient(to bottom right, #fffdf0, #ffffff);
@@ -112,8 +124,7 @@ css_comum = """
         margin-bottom: 10px;
         display: inline-block;
     }
-
-    /* ESTILO ESPECIAL DA RIFA VENCEDOR */
+    
     .winner-card {
         border: 2px solid #28a745;
         background: linear-gradient(to bottom right, #f0fff4, #ffffff);
@@ -141,7 +152,7 @@ css_comum = """
         div.stButton > button[kind="secondary"] { height: 60px !important; }
         .header-style h2 { font-size: 16px !important; } 
         .header-style p { font-size: 11px !important; }
-        .header-style .saldo-valor { font-size: 22px !important; }
+        .header-style .saldo-valor { font-size: 26px !important; }
     }
 """
 
@@ -631,10 +642,11 @@ def tela_admin():
             with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") 
             with c_btn_save_1:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
-                    st.cache_data.clear() 
+                    st.cache_data.clear() # Limpeza preventiva
                     try:
                         with conn.session as s:
                             for i, row in edit_v.iterrows():
+                                # ATUALIZADO: Salva TODAS as colunas editáveis
                                 s.execute(text("UPDATE vendas SET item=:item, valor=:valor, codigo_vale=:c, status=:st, nome_real=:n, telefone=:t, email=:e WHERE id=:id"), 
                                          {"item": str(row['item']), "valor": float(row['valor']), "c": str(row['codigo_vale']), "st": str(row['status']), "n": str(row['nome_real']), "t": str(row['telefone']), "e": str(row.get('email', '')), "id": int(row['id'])})
                             s.commit()
@@ -699,6 +711,7 @@ def tela_admin():
                     try:
                         with conn.session as s:
                             for i, row in edit_u.iterrows():
+                                # ATUALIZADO: Salva todas as colunas
                                 s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
                                          {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": str(row['telefone']), "n": str(row['nome']), "tp": str(row['tipo']), "id": int(row['id'])})
                             s.commit()
@@ -860,7 +873,8 @@ def tela_principal():
         c_refresh = None
     
     with c_banner:
-        st.markdown(f'<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Agora você pode trocar seus pontos por prêmios incríveis!</p></div><div style="text-align:right; color:white;"><span style="font-size:10px; opacity:0.8; class="saldo-label">SEU SALDO</span><br><span style="font-size:25px; font-weight:bold; class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>', unsafe_allow_html=True)
+        # ATUALIZADO COM O HTML CORRIGIDO PARA O NEGRITO
+        st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Agora você pode trocar seus pontos por prêmios incríveis!</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
     
     if c_refresh:
         with c_refresh:
