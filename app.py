@@ -17,6 +17,17 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 # --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
 
+# --- INICIALIZAÇÃO DA SESSÃO (GARANTIDA) ---
+# Este bloco garante que as variáveis existam antes de qualquer verificação
+if 'logado' not in st.session_state: st.session_state['logado'] = False
+if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
+if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
+if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
+if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
+if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificacao_2fa'] = False
+if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
+if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
+
 # --- CSS DINÂMICO ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
@@ -60,7 +71,6 @@ css_comum = """
     .header-style h2 { font-size: 20px !important; font-weight: 700 !important; margin-bottom: 2px !important; }
     .header-style p { font-size: 12px !important; line-height: 1.3 !important; opacity: 0.9 !important; }
     
-    /* ESTILO DO SALDO (ATUALIZADO) */
     .header-style .saldo-label { 
         font-size: 11px !important; 
         opacity: 0.9 !important; 
@@ -70,8 +80,8 @@ css_comum = """
     }
     .header-style .saldo-valor { 
         font-size: 30px !important; 
-        font-weight: 900 !important; /* ULTRA NEGRITO */
-        text-shadow: 0 2px 4px rgba(0,0,0,0.15); /* Sombra para destaque */
+        font-weight: 900 !important; 
+        text-shadow: 0 2px 4px rgba(0,0,0,0.15); 
     }
 
     /* BOTÕES */
@@ -646,7 +656,6 @@ def tela_admin():
                     try:
                         with conn.session as s:
                             for i, row in edit_v.iterrows():
-                                # ATUALIZADO: Salva TODAS as colunas editáveis
                                 s.execute(text("UPDATE vendas SET item=:item, valor=:valor, codigo_vale=:c, status=:st, nome_real=:n, telefone=:t, email=:e WHERE id=:id"), 
                                          {"item": str(row['item']), "valor": float(row['valor']), "c": str(row['codigo_vale']), "st": str(row['status']), "n": str(row['nome_real']), "t": str(row['telefone']), "e": str(row.get('email', '')), "id": int(row['id'])})
                             s.commit()
@@ -711,7 +720,6 @@ def tela_admin():
                     try:
                         with conn.session as s:
                             for i, row in edit_u.iterrows():
-                                # ATUALIZADO: Salva todas as colunas
                                 s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp WHERE id=:id"), 
                                          {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": str(row['telefone']), "n": str(row['nome']), "tp": str(row['tipo']), "id": int(row['id'])})
                             s.commit()
@@ -1034,5 +1042,5 @@ def tela_principal():
 
 if __name__ == "__main__":
     verificar_sessao_automatica()
-    if st.session_state.logado: tela_principal()
+    if st.session_state.get('logado', False): tela_principal()
     else: tela_login()
