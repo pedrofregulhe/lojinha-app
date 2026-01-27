@@ -932,7 +932,21 @@ def tela_principal():
                     if img_premio: st.image(processar_link_imagem(img_premio), use_container_width=True)
                 with c_info_rifa:
                     st.markdown(f"#### Custo do Ticket: **{r['custo_ticket']} pts**")
-                    st.info("Você pode comprar quantos tickets quiser para aumentar suas chances!")
+                    
+                    # --- FEATURE NOVA: CONTADOR DE TICKETS ---
+                    my_tickets_count = 0
+                    try:
+                        df_count = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid AND usuario = :u", {"rid": int(r['id']), "u": u_cod})
+                        if not df_count.empty:
+                            my_tickets_count = df_count.iloc[0]['qtd']
+                    except: pass
+
+                    if my_tickets_count > 0:
+                        st.success(f"🎟️ Você já tem: **{my_tickets_count} tickets**")
+                    else:
+                        st.info("Você ainda não tem tickets.")
+                    # -----------------------------------------
+
                     if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary", use_container_width=True):
                         confirmar_compra_ticket(int(r['id']), r['item_nome'], r['custo_ticket'], u_cod)
             
