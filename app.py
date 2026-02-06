@@ -18,13 +18,12 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 conn = st.connection("postgresql", type="sql")
 
 # --- ROBÔ DE ATUALIZAÇÃO DO BANCO (AUTO-MIGRATION) ---
-# Isso garante que a coluna exista sem você precisar mexer no Neon
 with conn.session as s:
     try:
         s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS valor_ponto FLOAT DEFAULT 0.50;"))
         s.commit()
     except Exception as e:
-        pass # Se der erro (ex: coluna já existe), vida que segue
+        pass 
 
 # --- INICIALIZAÇÃO DA SESSÃO ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
@@ -32,8 +31,10 @@ if 'usuario_cod' not in st.session_state: st.session_state['usuario_cod'] = ""
 if 'usuario_nome' not in st.session_state: st.session_state['usuario_nome'] = ""
 if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "comum"
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
-# Variável para guardar o valor do ponto do usuário logado
 if 'valor_ponto_usuario' not in st.session_state: st.session_state['valor_ponto_usuario'] = 0.50 
+
+# NOVA VARIÁVEL DE CONTROLE DE VISÃO (ADMIN)
+if 'admin_mode' not in st.session_state: st.session_state['admin_mode'] = True 
 
 if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificacao_2fa'] = False
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
@@ -273,7 +274,9 @@ def enviar_sms(telefone, mensagem_texto):
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
         if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
+        
         payload = { "messages": [ { "from": "InfoSMS", "destinations": [{"to": tel_final}], "text": mensagem_texto } ] }
+        
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code not in [200, 201]: return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
@@ -312,7 +315,6 @@ def validar_login(user_input, pass_input):
     if df.empty: return False, None, None, 0, None, None, 0.50
     linha = df.iloc[0]
     if verificar_senha_hash(pass_input.strip(), linha['senha']):
-        # Pega valor do ponto, se for None, assume 0.50
         v_ponto = float(linha.get('valor_ponto', 0.50) or 0.50)
         return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone']), int(linha['id']), v_ponto
     return False, None, None, 0, None, None, 0.50
@@ -604,8 +606,8 @@ def tela_admin():
                     else: processar_envios_dialog(sel, usar_zap, usar_sms, tipo_envio="vendas")
 
     with t2:
-        # --- NOVA FERRAMENTA DE AJUSTE DE PONTO INTUITIVA (v5.1) ---
-        with st.expander("💎 Configurar Valor do Ponto (VIP/Personalizado)"):
+        # --- RENOMEADO: FERRAMENTA DE AJUSTE INDIVIDUALIZADO ---
+        with st.expander("💎 Configurar Valor do Ponto Individualizado"):
             st.info("Utilize esta ferramenta para definir quanto vale 1 ponto para um usuário específico.")
             df_users_list = run_query("SELECT id, usuario, nome, valor_ponto FROM usuarios ORDER BY nome")
             
@@ -613,7 +615,6 @@ def tela_admin():
                 opcoes_user = {f"{row['nome']} ({row['usuario']})": row['id'] for i, row in df_users_list.iterrows()}
                 user_selecionado_chave = st.selectbox("Selecione o Usuário:", list(opcoes_user.keys()))
                 
-                # Pega o valor atual do ponto desse usuário para mostrar no input
                 user_id_sel = opcoes_user[user_selecionado_chave]
                 valor_atual = df_users_list[df_users_list['id'] == user_id_sel]['valor_ponto'].iloc[0]
                 if pd.isna(valor_atual): valor_atual = 0.50
@@ -623,11 +624,8 @@ def tela_admin():
                 if st.button("💾 Salvar Valor Personalizado", type="primary"):
                     try:
                         run_transaction("UPDATE usuarios SET valor_ponto = :vp WHERE id = :id", {"vp": novo_valor_ponto, "id": user_id_sel})
-                        st.cache_data.clear()
-                        st.success(f"Atualizado! Para este usuário, 1 Ponto agora vale R$ {novo_valor_ponto:.2f}")
-                        time.sleep(2); st.rerun()
+                        st.cache_data.clear(); st.success(f"Atualizado! Para este usuário, 1 Ponto agora vale R$ {novo_valor_ponto:.2f}"); time.sleep(2); st.rerun()
                     except Exception as e: st.error(f"Erro: {e}")
-        # -----------------------------------------------------------
 
         with st.expander("➕ Cadastrar Novo Usuário"):
             with st.form("form_novo"):
@@ -776,26 +774,47 @@ def tela_principal():
     valor_ponto_usuario = st.session_state.get('valor_ponto_usuario', 0.50)
     valor_padrao_ponto = 0.50 
 
+    # --- LÓGICA DO HEADER ---
     if tipo == 'admin':
-        cols = st.columns([3, 1, 1, 1], gap="small")
-        c_banner = cols[0]; c_refresh = cols[1]; c_senha = cols[2]; c_sair = cols[3]
+        # Admin vê 5 Colunas para caber o novo botão de alternância
+        cols = st.columns([3, 0.5, 0.8, 0.5, 0.5], gap="small")
+        c_banner = cols[0]; c_refresh = cols[1]; c_toggle_view = cols[2]; c_senha = cols[3]; c_sair = cols[4]
     else:
+        # Usuário comum vê 3 colunas
         cols = st.columns([3, 1, 1], gap="medium")
-        c_banner = cols[0]; c_senha = cols[1]; c_sair = cols[2]; c_refresh = None
+        c_banner = cols[0]; c_senha = cols[1]; c_sair = cols[2]; c_refresh = None; c_toggle_view = None
     
     with c_banner:
         st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Agora você pode trocar seus pontos por prêmios incríveis!</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
+    
     if c_refresh:
         with c_refresh:
-            if st.button("🔄 Atualizar", type="secondary", use_container_width=True): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
+            if st.button("🔄", help="Atualizar Dados", type="secondary", use_container_width=True): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
+
+    # --- BOTÃO DE ALTERNAR VISÃO (SÓ PARA ADMIN) ---
+    if c_toggle_view:
+        with c_toggle_view:
+            if st.session_state.admin_mode:
+                if st.button("👁️ Ver Loja", help="Visualizar como usuário comum"):
+                    st.session_state.admin_mode = False
+                    st.rerun()
+            else:
+                if st.button("🛠️ Voltar Admin", type="primary", use_container_width=True):
+                    st.session_state.admin_mode = True
+                    st.rerun()
+
     with c_senha:
-        if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+        if st.button("🔐", help="Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
     with c_sair:
-        if st.button("❌ Encerrar Sessão", type="secondary", use_container_width=True): realizar_logout()
+        if st.button("❌", help="Sair", type="secondary", use_container_width=True): realizar_logout()
     st.divider()
     
-    if tipo == 'admin': tela_admin()
+    # --- DECISÃO DE QUAL TELA MOSTRAR ---
+    # Se for ADMIN e estiver no MODO ADMIN -> Mostra Painel Admin
+    if tipo == 'admin' and st.session_state.admin_mode:
+        tela_admin()
     else:
+        # Caso contrário (Usuário Comum OU Admin no "Modo Espião") -> Mostra a Loja
         t1, t2, t3, t4 = st.tabs(["🎁 Catálogo", "🍀 Sorteio", "📜 Meus Resgates", "🏆 Ranking"])
         with t1:
             df_p = run_query("SELECT * FROM premios ORDER BY id") 
