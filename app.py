@@ -38,17 +38,17 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (CORREÇÃO DE FONTE E LAYOUT) ---
+# --- CSS DINÂMICO (CORREÇÃO DE FONTE E BOTÕES) ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
-    /* CSS LIMPO: APLICA FONTE APENAS EM TEXTO, NÃO EM ESTRUTURA */
-    html, body, .stMarkdown, .stText, p, h1, h2, h3, h4, h5, h6, span, button, input, select, textarea {
+    /* 1. CORREÇÃO DO TEXTO ESTRANHO: Aplica fonte só em texto, não em ícones */
+    h1, h2, h3, h4, h5, h6, p, span, button, input, select, textarea, .stMarkdown {
         font-family: 'Poppins', sans-serif !important;
         color: #31333F; 
     }
     
-    /* REMOVER CABEÇALHO BRANCO */
+    /* Remove cabeçalho padrão */
     header[data-testid="stHeader"] { display: none; }
     .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
 
@@ -73,30 +73,23 @@ css_comum = """
     .header-style .saldo-label { font-size: 10px !important; font-weight: 600 !important; }
     .header-style .saldo-valor { font-size: 30px !important; font-weight: 900 !important; text-shadow: 0 2px 4px rgba(0,0,0,0.15); }
 
-    /* === BOTÕES GERAIS (50px PADRÃO) === */
+    /* === BOTÕES GERAIS === */
     div.stButton > button {
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         font-weight: 600 !important;
         width: 100%;
-        height: 50px !important; 
-        min-height: 50px !important;
-        max-height: 50px !important;
         border: none !important;
-        margin: 0 !important;
     }
 
-    /* === BOTÕES SECUNDÁRIOS (BRANCOS) === */
-    div.stButton > button[kind="secondary"] {
-        background-color: #ffffff !important;
-        color: #003366 !important;
-        border: 2px solid #eef2f6 !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-    }
-
-    /* === BOTÕES DO CATÁLOGO (MESMO TAMANHO EXATO) === */
+    /* === 2. CORREÇÃO DOS BOTÕES DO CATÁLOGO (ALTURA IGUAL) === */
+    /* Força altura fixa para botões dentro das abas */
     [data-testid="stTabs"] div.stButton > button {
-        height: 50px !important;
-        min-height: 50px !important;
+        height: 45px !important;      /* Altura fixa */
+        min-height: 45px !important;
+        max-height: 45px !important;
+        line-height: 1 !important;    /* Centraliza texto */
+        margin-top: auto !important;
+        padding: 0px 10px !important;
     }
 
     /* Botão Resgatar (Azul) */
@@ -107,9 +100,8 @@ css_comum = """
     [data-testid="stTabs"] button[kind="primary"]:hover { 
         background-color: #0052a3 !important; 
     }
-    [data-testid="stTabs"] button[kind="primary"] p { color: white !important; }
-
-    /* Botão Detalhes (Branco) */
+    
+    /* Botão Detalhes (Branco com borda) */
     [data-testid="stTabs"] button[kind="secondary"] { 
         background-color: #ffffff !important; 
         color: #003366 !important; 
@@ -117,6 +109,17 @@ css_comum = """
     }
     [data-testid="stTabs"] button[kind="secondary"]:hover { 
         background-color: #f5f5f5 !important;
+        border-color: #999 !important;
+    }
+
+    /* === 3. BOTÕES DO CABEÇALHO (ADMIN E USUÁRIO) === */
+    /* Botões brancos do header */
+    div[data-testid="column"] > div > div > div > div > div.stButton > button[kind="secondary"] {
+        background-color: #ffffff !important;
+        color: #003366 !important;
+        border: 1px solid #eef2f6 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        height: 50px !important; /* Altura para empilhar */
     }
 
     /* IMAGENS */
@@ -130,7 +133,6 @@ css_comum = """
 
     @media only screen and (max-width: 600px) {
         .header-style { height: auto !important; padding: 15px !important; text-align: center !important; }
-        div.stButton > button { height: 50px !important; }
     }
 """
 
@@ -181,10 +183,7 @@ def criar_sessao_persistente(usuario_id):
     st.query_params["sessao"] = token
 
 def verificar_sessao_automatica():
-    # Se já estiver logado, não faz nada
     if st.session_state.get('logado', False): return
-    
-    # Verifica se tem token na URL
     token_url = st.query_params.get("sessao")
     if token_url:
         try:
@@ -496,7 +495,6 @@ def tela_admin():
                     else: processar_envios_dialog(sel, usar_zap, usar_sms, tipo_envio="vendas")
     with t2:
         with st.expander("💎 Configurar Valor do Ponto Individualizado"):
-            st.info("Utilize esta ferramenta para definir quanto vale 1 ponto para um usuário específico.")
             df_users_list = run_query("SELECT id, usuario, nome, valor_ponto FROM usuarios ORDER BY nome")
             if not df_users_list.empty:
                 opcoes_user = {f"{row['nome']} ({row['usuario']})": row['id'] for i, row in df_users_list.iterrows()}
