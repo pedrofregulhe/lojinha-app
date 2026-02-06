@@ -38,24 +38,18 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (CORREÇÃO DE LAYOUT) ---
+# --- CSS DINÂMICO (LAYOUT 100% ALINHADO) ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
-    /* FONTE GERAL */
     html, body, [class*="css"], .stMarkdown, .stText, p, h1, h2, h3, h4, span, div, button {
         font-family: 'Poppins', sans-serif !important;
         color: #31333F; 
     }
     
-    /* REMOVER CABEÇALHO BRANCO DO STREAMLIT */
-    header[data-testid="stHeader"] {
-        display: none;
-    }
-    .block-container {
-        padding-top: 2rem !important; /* Pequeno respiro no topo */
-        padding-bottom: 1rem !important;
-    }
+    /* REMOVER CABEÇALHO BRANCO */
+    header[data-testid="stHeader"] { display: none; }
+    .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
 
     /* === BANNER === */
     .header-style { 
@@ -72,51 +66,40 @@ css_comum = """
         height: 110px !important; 
         margin: 0 !important;
     }
-    /* Forçar texto branco dentro do banner */
-    .header-style h2, .header-style p, .header-style span, .header-style div {
-        color: white !important;
-    }
+    .header-style h2, .header-style p, .header-style span, .header-style div { color: white !important; }
     .header-style h2 { font-size: 20px !important; font-weight: 700 !important; margin: 0 !important; }
     .header-style p { font-size: 12px !important; line-height: 1.3 !important; opacity: 0.9 !important; margin: 2px 0 0 0 !important; }
     .header-style .saldo-label { font-size: 10px !important; font-weight: 600 !important; }
     .header-style .saldo-valor { font-size: 30px !important; font-weight: 900 !important; text-shadow: 0 2px 4px rgba(0,0,0,0.15); }
 
-    /* === REGRA MESTRA DE BOTÕES === */
+    /* === BOTÕES GERAIS (50px PADRÃO) === */
     div.stButton > button {
         border-radius: 10px !important;
         font-weight: 600 !important;
         width: 100%;
+        height: 50px !important; 
+        min-height: 50px !important;
+        max-height: 50px !important;
         border: none !important;
+        margin: 0 !important;
     }
 
-    /* === BOTÕES GIGANTES DO HEADER (USUÁRIO COMUM) === */
-    /* Botões secundários na raiz (fora de abas/colunas aninhadas) ficam com 110px */
+    /* === BOTÕES SECUNDÁRIOS (BRANCOS) === */
     div.stButton > button[kind="secondary"] {
         background-color: #ffffff !important;
         color: #003366 !important;
         border: 2px solid #eef2f6 !important;
-        height: 110px !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
 
-    /* === BOTÕES DO ADMIN (2x2) E LOGIN === */
-    /* Quando dentro de colunas aninhadas ou formulário, voltam ao tamanho normal */
-    [data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"] div.stButton > button,
-    [data-testid="stForm"] div.stButton > button {
-        height: 50px !important;
-        min-height: 50px !important;
-    }
-
-    /* === BOTÕES DO CATÁLOGO (ABAS) - CORREÇÃO DE TAMANHO === */
-    /* Força TODOS os botões dentro das abas a terem 50px */
+    /* === BOTÕES DO CATÁLOGO (MESMO TAMANHO EXATO) === */
+    /* Garante que dentro das abas, os botões obedeçam a altura */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
-        margin-top: auto !important;
-        box-shadow: none !important;
     }
 
-    /* Estilo Específico: Botão Resgatar (Azul) */
+    /* Botão Resgatar (Azul) */
     [data-testid="stTabs"] button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
@@ -126,7 +109,7 @@ css_comum = """
     }
     [data-testid="stTabs"] button[kind="primary"] p { color: white !important; }
 
-    /* Estilo Específico: Botão Detalhes (Branco) */
+    /* Botão Detalhes (Branco) */
     [data-testid="stTabs"] button[kind="secondary"] { 
         background-color: #ffffff !important; 
         color: #003366 !important; 
@@ -147,7 +130,7 @@ css_comum = """
 
     @media only screen and (max-width: 600px) {
         .header-style { height: auto !important; padding: 15px !important; text-align: center !important; }
-        div.stButton > button[kind="secondary"] { height: 60px !important; }
+        div.stButton > button { height: 50px !important; }
     }
 """
 
@@ -657,13 +640,14 @@ def tela_principal():
             with c_btn_bot[1]:
                 if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
     else:
-        # Layout usuário comum: Botões 110px para alinhar com banner
-        cols = st.columns([3, 1, 1], gap="medium")
+        # Layout usuário comum: 2 colunas -> Banner (3) | Botões empilhados (1)
+        cols = st.columns([3, 1], gap="small")
         c_banner = cols[0]
-        with cols[1]:
-            if st.button("Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
-        with cols[2]:
-            if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
+        c_buttons = cols[1]
+        with c_buttons:
+            # Botões empilhados aqui, com 50px cada, somando 100px + gap = ~110px
+            if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+            if st.button("❌ Sair", type="secondary", use_container_width=True): realizar_logout()
     
     with c_banner:
         st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Agora você pode trocar seus pontos por prêmios incríveis!</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
