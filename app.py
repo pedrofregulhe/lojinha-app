@@ -38,11 +38,12 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (LAYOUT 100% ALINHADO) ---
+# --- CSS DINÂMICO (CORREÇÃO DE FONTE E LAYOUT) ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
-    html, body, [class*="css"], .stMarkdown, .stText, p, h1, h2, h3, h4, span, div, button {
+    /* CSS LIMPO: APLICA FONTE APENAS EM TEXTO, NÃO EM ESTRUTURA */
+    html, body, .stMarkdown, .stText, p, h1, h2, h3, h4, h5, h6, span, button, input, select, textarea {
         font-family: 'Poppins', sans-serif !important;
         color: #31333F; 
     }
@@ -93,7 +94,6 @@ css_comum = """
     }
 
     /* === BOTÕES DO CATÁLOGO (MESMO TAMANHO EXATO) === */
-    /* Garante que dentro das abas, os botões obedeçam a altura */
     [data-testid="stTabs"] div.stButton > button {
         height: 50px !important;
         min-height: 50px !important;
@@ -181,21 +181,27 @@ def criar_sessao_persistente(usuario_id):
     st.query_params["sessao"] = token
 
 def verificar_sessao_automatica():
+    # Se já estiver logado, não faz nada
     if st.session_state.get('logado', False): return
+    
+    # Verifica se tem token na URL
     token_url = st.query_params.get("sessao")
     if token_url:
-        df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t", {"t": token_url})
-        if not df.empty:
-            row = df.iloc[0]
-            st.session_state.update({
-                'logado': True,
-                'usuario_cod': row['usuario'],
-                'usuario_nome': row['nome'],
-                'tipo_usuario': str(row['tipo']).lower().strip(),
-                'saldo_atual': float(row['saldo']),
-                'valor_ponto_usuario': float(row.get('valor_ponto', 0.50) or 0.50)
-            })
-            st.rerun()
+        try:
+            df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t", {"t": token_url})
+            if not df.empty:
+                row = df.iloc[0]
+                st.session_state.update({
+                    'logado': True,
+                    'usuario_cod': row['usuario'],
+                    'usuario_nome': row['nome'],
+                    'tipo_usuario': str(row['tipo']).lower().strip(),
+                    'saldo_atual': float(row['saldo']),
+                    'valor_ponto_usuario': float(row.get('valor_ponto', 0.50) or 0.50)
+                })
+                st.rerun()
+        except Exception:
+            pass
 
 def realizar_logout():
     if st.session_state.get('usuario_cod'):
@@ -490,6 +496,7 @@ def tela_admin():
                     else: processar_envios_dialog(sel, usar_zap, usar_sms, tipo_envio="vendas")
     with t2:
         with st.expander("💎 Configurar Valor do Ponto Individualizado"):
+            st.info("Utilize esta ferramenta para definir quanto vale 1 ponto para um usuário específico.")
             df_users_list = run_query("SELECT id, usuario, nome, valor_ponto FROM usuarios ORDER BY nome")
             if not df_users_list.empty:
                 opcoes_user = {f"{row['nome']} ({row['usuario']})": row['id'] for i, row in df_users_list.iterrows()}
@@ -731,5 +738,6 @@ def tela_principal():
             else: st.info("Ranking ainda vazio.")
 
 if __name__ == "__main__":
+    verificar_sessao_automatica() # <--- CHAMADA CORRIGIDA PARA O AUTO-LOGIN
     if st.session_state.get('logado', False): tela_principal()
     else: tela_login()
