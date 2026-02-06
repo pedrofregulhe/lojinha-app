@@ -38,7 +38,7 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (CORREÇÃO DE ÍCONES E LAYOUT) ---
+# --- CSS DINÂMICO (CORREÇÃO FINAL DE ALTURA DOS BOTÕES) ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
@@ -67,7 +67,6 @@ css_comum = """
         height: 110px !important; 
         margin: 0 !important;
     }
-    /* Forçar texto branco dentro do banner */
     .header-style h2, .header-style p, .header-style span, .header-style div { color: white !important; }
     .header-style h2 { font-size: 20px !important; font-weight: 700 !important; margin: 0 !important; }
     .header-style p { font-size: 12px !important; line-height: 1.3 !important; opacity: 0.9 !important; margin: 2px 0 0 0 !important; }
@@ -82,36 +81,44 @@ css_comum = """
         border: none !important;
     }
 
-    /* === BOTÕES DO CATÁLOGO (ALTURA IGUAL - 45px) === */
+    /* === BOTÕES DO CATÁLOGO (ALTURA IDÊNTICA FORÇADA) === */
     [data-testid="stTabs"] div.stButton > button {
-        height: 45px !important;      
-        min-height: 45px !important;
-        max-height: 45px !important;
+        height: 46px !important;         /* Altura fixa exata */
+        min-height: 46px !important;
+        max-height: 46px !important;
         margin-top: auto !important;
+        padding-top: 0 !important;       /* Remove padding vertical padrão */
+        padding-bottom: 0 !important;    /* Remove padding vertical padrão */
+        border-width: 1px !important;    /* Garante que ambos tenham borda de 1px */
+        border-style: solid !important;
+        display: flex !important;        /* Garante alinhamento central do texto */
+        align-items: center !important;
+        justify-content: center !important;
     }
 
     /* Botão Resgatar (Azul) */
     [data-testid="stTabs"] button[kind="primary"] { 
         background-color: #0066cc !important; 
+        border-color: #0066cc !important; /* Borda da mesma cor do fundo para manter o tamanho */
         color: white !important; 
     }
     [data-testid="stTabs"] button[kind="primary"]:hover { 
         background-color: #0052a3 !important; 
+        border-color: #0052a3 !important;
     }
     [data-testid="stTabs"] button[kind="primary"] p { color: white !important; }
 
     /* Botão Detalhes (Branco) */
     [data-testid="stTabs"] button[kind="secondary"] { 
         background-color: #ffffff !important; 
+        border-color: #e0e0e0 !important; /* Borda cinza visível */
         color: #003366 !important; 
-        border: 1px solid #e0e0e0 !important; 
     }
     [data-testid="stTabs"] button[kind="secondary"]:hover { 
         background-color: #f5f5f5 !important;
     }
 
     /* === BOTÕES DO HEADER (USUÁRIO COMUM - EMPILHADOS) === */
-    /* Seletor específico para os botões empilhados do usuário comum para ficarem com 50px */
     div[data-testid="column"] div.stButton > button[kind="secondary"] {
         background-color: #ffffff !important;
         color: #003366 !important;
@@ -643,11 +650,14 @@ def tela_principal():
             with c_btn_bot[1]:
                 if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
     else:
+        # Layout usuário comum: 2 colunas -> Banner (3) | Botões empilhados (1)
         cols = st.columns([3, 1], gap="small")
-        c_banner = cols[0]; c_buttons = cols[1]
+        c_banner = cols[0]
+        c_buttons = cols[1]
         with c_buttons:
-            if st.button("Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
-            if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
+            # Botões empilhados aqui, com 50px cada, somando 100px + gap = ~110px
+            if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+            if st.button("❌ Sair", type="secondary", use_container_width=True): realizar_logout()
     
     with c_banner:
         st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Agora você pode trocar seus pontos por prêmios incríveis!</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
