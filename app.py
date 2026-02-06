@@ -17,7 +17,7 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 # --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
 
-# --- ROBÔ DE ATUALIZAÇÃO DO BANCO (AUTO-MIGRATION) ---
+# --- ROBÔ DE ATUALIZAÇÃO DO BANCO ---
 with conn.session as s:
     try:
         s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS valor_ponto FLOAT DEFAULT 0.50;"))
@@ -38,7 +38,130 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- FUNÇÕES BÁSICAS (NO TOPO) ---
+# --- CSS DINÂMICO (CORREÇÃO DE LAYOUT) ---
+css_comum = """
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
+    
+    /* FONTE GERAL */
+    html, body, [class*="css"], .stMarkdown, .stText, p, h1, h2, h3, h4, span, div, button {
+        font-family: 'Poppins', sans-serif !important;
+        color: #31333F; 
+    }
+    
+    /* REMOVER CABEÇALHO BRANCO DO STREAMLIT */
+    header[data-testid="stHeader"] {
+        display: none;
+    }
+    .block-container {
+        padding-top: 2rem !important; /* Pequeno respiro no topo */
+        padding-bottom: 1rem !important;
+    }
+
+    /* === BANNER === */
+    .header-style { 
+        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
+        background-size: 400% 400%; 
+        animation: gradient 10s ease infinite; 
+        padding: 0 25px; 
+        border-radius: 12px; 
+        color: white !important; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+        display: flex; 
+        flex-direction: column; 
+        justify-content: center; 
+        height: 110px !important; 
+        margin: 0 !important;
+    }
+    /* Forçar texto branco dentro do banner */
+    .header-style h2, .header-style p, .header-style span, .header-style div {
+        color: white !important;
+    }
+    .header-style h2 { font-size: 20px !important; font-weight: 700 !important; margin: 0 !important; }
+    .header-style p { font-size: 12px !important; line-height: 1.3 !important; opacity: 0.9 !important; margin: 2px 0 0 0 !important; }
+    .header-style .saldo-label { font-size: 10px !important; font-weight: 600 !important; }
+    .header-style .saldo-valor { font-size: 30px !important; font-weight: 900 !important; text-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+
+    /* === REGRA MESTRA DE BOTÕES === */
+    div.stButton > button {
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        width: 100%;
+        border: none !important;
+    }
+
+    /* === BOTÕES GIGANTES DO HEADER (USUÁRIO COMUM) === */
+    /* Botões secundários na raiz (fora de abas/colunas aninhadas) ficam com 110px */
+    div.stButton > button[kind="secondary"] {
+        background-color: #ffffff !important;
+        color: #003366 !important;
+        border: 2px solid #eef2f6 !important;
+        height: 110px !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    }
+
+    /* === BOTÕES DO ADMIN (2x2) E LOGIN === */
+    /* Quando dentro de colunas aninhadas ou formulário, voltam ao tamanho normal */
+    [data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"] div.stButton > button,
+    [data-testid="stForm"] div.stButton > button {
+        height: 50px !important;
+        min-height: 50px !important;
+    }
+
+    /* === BOTÕES DO CATÁLOGO (ABAS) - CORREÇÃO DE TAMANHO === */
+    /* Força TODOS os botões dentro das abas a terem 50px */
+    [data-testid="stTabs"] div.stButton > button {
+        height: 50px !important;
+        min-height: 50px !important;
+        margin-top: auto !important;
+        box-shadow: none !important;
+    }
+
+    /* Estilo Específico: Botão Resgatar (Azul) */
+    [data-testid="stTabs"] button[kind="primary"] { 
+        background-color: #0066cc !important; 
+        color: white !important; 
+    }
+    [data-testid="stTabs"] button[kind="primary"]:hover { 
+        background-color: #0052a3 !important; 
+    }
+    [data-testid="stTabs"] button[kind="primary"] p { color: white !important; }
+
+    /* Estilo Específico: Botão Detalhes (Branco) */
+    [data-testid="stTabs"] button[kind="secondary"] { 
+        background-color: #ffffff !important; 
+        color: #003366 !important; 
+        border: 1px solid #e0e0e0 !important; 
+    }
+    [data-testid="stTabs"] button[kind="secondary"]:hover { 
+        background-color: #f5f5f5 !important;
+    }
+
+    /* IMAGENS */
+    [data-testid="stImage"] img { height: 180px !important; object-fit: contain !important; border-radius: 10px; }
+
+    /* RIFA E CARDS */
+    .rifa-card { border: 2px solid #FFD700; background: linear-gradient(to bottom right, #fffdf0, #ffffff); padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
+    .rifa-tag { background-color: #FFD700; color: #000; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; margin-bottom: 10px; display: inline-block; }
+    .winner-card { border: 2px solid #28a745; background: linear-gradient(to bottom right, #f0fff4, #ffffff); padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
+    .winner-tag { background-color: #28a745; color: #fff; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; margin-bottom: 10px; display: inline-block; }
+
+    @media only screen and (max-width: 600px) {
+        .header-style { height: auto !important; padding: 15px !important; text-align: center !important; }
+        div.stButton > button[kind="secondary"] { height: 60px !important; }
+    }
+"""
+
+if not st.session_state.get('logado', False):
+    estilo_especifico = """
+    .stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }
+    [data-testid="stForm"] { background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    """
+else:
+    estilo_especifico = ".stApp { background-color: #f4f8fb; }"
+
+st.markdown(f"<style>{css_comum} {estilo_especifico}</style>", unsafe_allow_html=True)
+
+# --- FUNÇÕES BÁSICAS ---
 def processar_link_imagem(url):
     url = str(url).strip()
     if "github.com" in url and "/blob/" in url: return url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
@@ -65,114 +188,6 @@ def formatar_telefone(tel):
     apenas_numeros = re.sub(r'\D', '', str(tel))
     if 10 <= len(apenas_numeros) <= 11: apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
-
-# --- CSS DINÂMICO ---
-css_comum = """
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
-    
-    html, body, [class*="css"], .stMarkdown, .stText, p, h1, h2, h3, h4, span, div {
-        font-family: 'Poppins', sans-serif;
-        color: #31333F !important; 
-    }
-    input, textarea, select {
-        color: #31333F !important;
-        background-color: #ffffff !important;
-    }
-    .header-style h2, .header-style p, .header-style span, .header-style div {
-        color: white !important;
-    }
-    
-    /* === BANNER === */
-    .header-style { 
-        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
-        background-size: 400% 400%; 
-        animation: gradient 10s ease infinite; 
-        padding: 0 25px; 
-        border-radius: 15px; 
-        color: white; 
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
-        display: flex; 
-        flex-direction: column; 
-        justify-content: center; 
-        height: 110px !important; 
-        margin: 0 !important;
-    }
-    .header-style h2 { font-size: 20px !important; font-weight: 700 !important; margin: 0 !important; }
-    .header-style p { font-size: 12px !important; line-height: 1.3 !important; opacity: 0.9 !important; margin: 2px 0 0 0 !important; }
-    .header-style .saldo-label { font-size: 10px !important; font-weight: 600 !important; }
-    .header-style .saldo-valor { font-size: 30px !important; font-weight: 900 !important; text-shadow: 0 2px 4px rgba(0,0,0,0.15); }
-
-    /* === PADRONIZAÇÃO DE BOTÕES GERAIS === */
-    div.stButton > button {
-        border-radius: 10px !important;
-        font-weight: 600 !important;
-        width: 100%;
-        height: 50px !important; /* Altura padrão para empilhar no header */
-        min-height: 50px !important;
-    }
-
-    /* === BOTÕES DO CATÁLOGO (MESMO TAMANHO) === */
-    /* Botão Resgatar (Primary): Fundo Azul, Texto Branco */
-    [data-testid="stTabs"] button[kind="primary"] { 
-        background-color: #0066cc !important; 
-        color: white !important; 
-        border: none !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    }
-    [data-testid="stTabs"] button[kind="primary"]:hover { 
-        background-color: #0052a3 !important; 
-        transform: translateY(-2px);
-    }
-    /* Correção para garantir cor branca no hover */
-    [data-testid="stTabs"] button[kind="primary"]:hover p { color: white !important; }
-
-    /* Botão Detalhes (Secondary): Fundo Branco, Borda Cinza */
-    [data-testid="stTabs"] button[kind="secondary"] { 
-        background-color: #ffffff !important; 
-        color: #003366 !important; 
-        border: 1px solid #e0e0e0 !important; 
-        box-shadow: none !important;
-    }
-    [data-testid="stTabs"] button[kind="secondary"]:hover { 
-        border-color: #999 !important; 
-        background-color: #f5f5f5 !important;
-    }
-
-    /* === BOTÕES DO HEADER (BLOCO 2x2) === */
-    /* Garantir que fiquem brancos com texto azul e compactos */
-    [data-testid="stVerticalBlock"] div.stButton > button[kind="secondary"] {
-        border: 1px solid #eef2f6 !important;
-        color: #003366 !important;
-        background-color: #ffffff !important;
-    }
-
-    /* IMAGENS DO CATÁLOGO */
-    [data-testid="stImage"] img { 
-        height: 180px !important; 
-        object-fit: contain !important; 
-        border-radius: 10px; 
-    }
-
-    /* RIFA E CARDS */
-    .rifa-card { border: 2px solid #FFD700; background: linear-gradient(to bottom right, #fffdf0, #ffffff); padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
-    .rifa-tag { background-color: #FFD700; color: #000; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; margin-bottom: 10px; display: inline-block; }
-    .winner-card { border: 2px solid #28a745; background: linear-gradient(to bottom right, #f0fff4, #ffffff); padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
-    .winner-tag { background-color: #28a745; color: #fff; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; margin-bottom: 10px; display: inline-block; }
-
-    @media only screen and (max-width: 600px) {
-        .header-style { height: auto !important; padding: 15px !important; text-align: center !important; }
-    }
-"""
-
-if not st.session_state.get('logado', False):
-    estilo_especifico = """
-    .stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }
-    [data-testid="stForm"] { background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-    """
-else:
-    estilo_especifico = ".stApp { background-color: #f4f8fb; }"
-
-st.markdown(f"<style>{css_comum} {estilo_especifico}</style>", unsafe_allow_html=True)
 
 # --- GERENCIAMENTO DE SESSÃO ---
 def criar_sessao_persistente(usuario_id):
@@ -395,16 +410,12 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
     st.markdown(f"""<div style='background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin-bottom: 10px;'><b>Canais Selecionados:</b> {'✅ WhatsApp' if usar_zap else '❌ WhatsApp'} | {'✅ SMS' if usar_sms else '❌ SMS'}</div>""", unsafe_allow_html=True)
     if st.button("CONFIRMAR E DISPARAR", type="primary", use_container_width=True):
         logs_envio = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        total = len(df_selecionados)
+        progress_bar = st.progress(0); status_text = st.empty(); total = len(df_selecionados)
         for i, (index, row) in enumerate(df_selecionados.iterrows()):
             status_text.text(f"Processando {i+1}/{total}: {row.get('nome', '')}...")
             tel = str(row['telefone'])
-            if tipo_envio == "vendas":
-                nome = str(row['nome_real'] or row['usuario']); var1 = str(row['item']); var2 = str(row['codigo_vale'])
-            else: 
-                nome = str(row['nome']); var1 = f"{float(row['saldo']):,.0f}"; var2 = ""
+            if tipo_envio == "vendas": nome = str(row['nome_real'] or row['usuario']); var1 = str(row['item']); var2 = str(row['codigo_vale'])
+            else: nome = str(row['nome']); var1 = f"{float(row['saldo']):,.0f}"; var2 = ""
             if usar_zap:
                 if len(formatar_telefone(tel)) >= 12:
                     ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos") if tipo_envio == "vendas" else enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos")
@@ -417,12 +428,9 @@ def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="ven
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
                 else: logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
             progress_bar.progress((i + 1) / total)
-        progress_bar.empty()
-        status_text.success("Processamento Finalizado!")
-        sucessos = len([x for x in logs_envio if "OK" in x['Status']])
-        erros = len(logs_envio) - sucessos
-        c1, c2 = st.columns(2)
-        c1.metric("✅ Sucessos", sucessos); c2.metric("❌ Falhas/Ignorados", erros)
+        progress_bar.empty(); status_text.success("Processamento Finalizado!")
+        sucessos = len([x for x in logs_envio if "OK" in x['Status']]); erros = len(logs_envio) - sucessos
+        c1, c2 = st.columns(2); c1.metric("✅ Sucessos", sucessos); c2.metric("❌ Falhas/Ignorados", erros)
         registrar_log("Disparo em Massa", f"Tipo: {tipo_envio} | Qtd: {total}")
         with st.expander("📄 Ver Detalhes (Log Completo)"): st.dataframe(pd.DataFrame(logs_envio), use_container_width=True)
         st.download_button(label="📥 Baixar Extrato (CSV)", data=pd.DataFrame(logs_envio).to_csv(index=False).encode('utf-8'), file_name=f'log_{datetime.now().strftime("%Y%m%d_%H%M")}.csv', mime='text/csv')
@@ -634,29 +642,28 @@ def tela_principal():
     valor_ponto_usuario = st.session_state.get('valor_ponto_usuario', 0.50); valor_padrao_ponto = 0.50 
 
     if tipo == 'admin':
-        cols = st.columns([3, 1.5], gap="medium") # Layout de 2 colunas principais para o admin
+        cols = st.columns([3, 1.5], gap="medium")
         c_banner = cols[0]
-        # Bloco de botões 2x2 na direita
         with cols[1]:
             c_btn_top = st.columns(2, gap="small")
             c_btn_bot = st.columns(2, gap="small")
-            with c_btn_top[0]: # Atualizar
-                if st.button("🔄", help="Atualizar Dados", type="secondary", use_container_width=True): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
-            with c_btn_top[1]: # Senha
-                if st.button("🔐", help="Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
-            with c_btn_bot[0]: # Toggle View (Voltar/Ver Loja)
-                label = "👁️ Ver Loja" if st.session_state.admin_mode else "🛠️ Voltar"
+            with c_btn_top[0]:
+                if st.button("Atualizar", type="secondary", use_container_width=True): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
+            with c_btn_top[1]:
+                if st.button("Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+            with c_btn_bot[0]:
+                label = "Ver Loja" if st.session_state.admin_mode else "Voltar"
                 if st.button(label, type="secondary", use_container_width=True): st.session_state.admin_mode = not st.session_state.admin_mode; st.rerun()
-            with c_btn_bot[1]: # Sair
-                if st.button("❌", help="Sair", type="secondary", use_container_width=True): realizar_logout()
+            with c_btn_bot[1]:
+                if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
     else:
-        # Layout usuário comum: 3 colunas padrão
+        # Layout usuário comum: Botões 110px para alinhar com banner
         cols = st.columns([3, 1, 1], gap="medium")
         c_banner = cols[0]
         with cols[1]:
-            if st.button("🔐", help="Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+            if st.button("Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
         with cols[2]:
-            if st.button("❌", help="Sair", type="secondary", use_container_width=True): realizar_logout()
+            if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
     
     with c_banner:
         st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Agora você pode trocar seus pontos por prêmios incríveis!</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
