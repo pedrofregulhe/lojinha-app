@@ -38,7 +38,7 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (ANIMAÇÃO RESTAURADA) ---
+# --- CSS DINÂMICO ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
@@ -49,12 +49,13 @@ css_comum = """
         100% { background-position: 0% 50%; } 
     }
 
-    /* 2. FONTES */
+    /* 2. CORREÇÃO DE FONTE (ICON FIX) */
     h1, h2, h3, h4, h5, h6, p, a, li, button, input, select, textarea, label, .stMarkdown, .stText {
         font-family: 'Poppins', sans-serif !important;
         color: #31333F; 
     }
     
+    /* Remove cabeçalho padrão */
     header[data-testid="stHeader"] { display: none; }
     .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
 
@@ -124,6 +125,7 @@ css_comum = """
         min-height: 50px !important;
     }
 
+    /* IMAGENS */
     [data-testid="stImage"] img { height: 180px !important; object-fit: contain !important; border-radius: 10px; }
 
     /* RIFA E CARDS */
@@ -331,8 +333,8 @@ def distribuir_pontos_multiplos(lista_usuarios, quantidade):
 @st.dialog("💾 Confirmação de Sistema")
 def modal_sucesso_salvamento(detalhes):
     st.success("As alterações foram gravadas no banco de dados!")
-    st.code(f"LOG: {detalhes}\nTIMESTAMP: {datetime.now()}", language="sql")
-    if st.button("Fechar", type="primary"):
+    st.code(f"LOG: {detalhes}\nTIMESTAMP: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", language="sql")
+    if st.button("Fechar Janela", type="primary"):
         st.rerun()
 
 @st.dialog("🔐 Alterar Senha")
@@ -405,37 +407,68 @@ def ver_detalhes_produto(item, imagem, custo, descricao):
     st.divider()
     st.info("ℹ️ **Informações de Entrega:**\nEste item será enviado para o endereço ou contato cadastrado. O prazo de processamento é de até 5 dias úteis.")
 
-@st.dialog("🚀 Confirmar e Processar Envios", width="large")
-def processar_envios_dialog(df_selecionados, usar_zap, usar_sms, tipo_envio="vendas"):
-    st.write(f"Você selecionou **{len(df_selecionados)} destinatários**.")
-    st.markdown(f"""<div style='background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin-bottom: 10px;'><b>Canais Selecionados:</b> {'✅ WhatsApp' if usar_zap else '❌ WhatsApp'} | {'✅ SMS' if usar_sms else '❌ SMS'}</div>""", unsafe_allow_html=True)
+@st.dialog("🚀 Confirmar e Processar Envios")
+def processar_envios_dialog(df_selecionados, tipo_envio="vendas"):
+    st.write(f"Destinatários selecionados: **{len(df_selecionados)}**")
+    
+    # SELEÇÃO DE CANAIS DENTRO DO MODAL
+    st.markdown("##### 📡 Canais de Envio:")
+    c1, c2 = st.columns(2)
+    with c1: usar_zap = st.toggle("WhatsApp", value=True)
+    with c2: usar_sms = st.toggle("SMS", value=True)
+    
+    # ALERTA DE NÚMEROS
+    invalidos = 0
+    for _, row in df_selecionados.iterrows():
+        if len(formatar_telefone(row['telefone'])) < 12: invalidos += 1
+    if invalidos > 0:
+        st.warning(f"⚠️ Atenção: {invalidos} números parecem inválidos.")
+
+    st.markdown("---")
+    
     if st.button("CONFIRMAR E DISPARAR", type="primary", use_container_width=True):
+        if not usar_zap and not usar_sms:
+            st.error("Selecione pelo menos um canal de envio.")
+            return
+
         logs_envio = []
         progress_bar = st.progress(0); status_text = st.empty(); total = len(df_selecionados)
+        
         for i, (index, row) in enumerate(df_selecionados.iterrows()):
             status_text.text(f"Processando {i+1}/{total}: {row.get('nome', '')}...")
             tel = str(row['telefone'])
             if tipo_envio == "vendas": nome = str(row['nome_real'] or row['usuario']); var1 = str(row['item']); var2 = str(row['codigo_vale'])
             else: nome = str(row['nome']); var1 = f"{float(row['saldo']):,.0f}"; var2 = ""
+            
             if usar_zap:
                 if len(formatar_telefone(tel)) >= 12:
                     ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos") if tipo_envio == "vendas" else enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos")
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
                 else: logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
+            
             if usar_sms:
                 if len(formatar_telefone(tel)) >= 12:
                     texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}." if tipo_envio == "vendas" else f"Lojinha Culli: Ola {nome}, sua pontuacao foi atualizada e seu saldo atual e de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
                     ok, det, cod = enviar_sms(tel, texto)
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
                 else: logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
+            
             progress_bar.progress((i + 1) / total)
+        
         progress_bar.empty(); status_text.success("Processamento Finalizado!")
-        sucessos = len([x for x in logs_envio if "OK" in x['Status']]); erros = len(logs_envio) - sucessos
-        c1, c2 = st.columns(2); c1.metric("✅ Sucessos", sucessos); c2.metric("❌ Falhas/Ignorados", erros)
+        sucessos = len([x for x in logs_envio if "OK" in x['Status']])
+        
+        # MOSTRAR RESULTADO RESUMIDO
+        c1, c2 = st.columns(2)
+        c1.metric("✅ Sucessos", sucessos)
+        c2.metric("❌ Falhas", len(logs_envio) - sucessos)
+        
         registrar_log("Disparo em Massa", f"Tipo: {tipo_envio} | Qtd: {total}")
-        with st.expander("📄 Ver Detalhes (Log Completo)"): st.dataframe(pd.DataFrame(logs_envio), use_container_width=True)
-        st.download_button(label="📥 Baixar Extrato (CSV)", data=pd.DataFrame(logs_envio).to_csv(index=False).encode('utf-8'), file_name=f'log_{datetime.now().strftime("%Y%m%d_%H%M")}.csv', mime='text/csv')
-        if st.button("Fechar Janela"): st.rerun()
+        
+        with st.expander("📄 Ver Log Detalhado"):
+            st.dataframe(pd.DataFrame(logs_envio), use_container_width=True)
+            
+        st.download_button(label="📥 Baixar CSV", data=pd.DataFrame(logs_envio).to_csv(index=False).encode('utf-8'), file_name='log_envio.csv', mime='text/csv')
 
 # --- TELAS ---
 def tela_login():
@@ -487,11 +520,13 @@ def tela_admin():
             filtro_status = st.multiselect("🔍 Filtrar por Status:", options=lista_status, placeholder="Selecione para filtrar (Vazio = Todos)")
             if filtro_status: df_v = df_v[df_v['status'].isin(filtro_status)]
             if "Enviar" not in df_v.columns: df_v.insert(0, "Enviar", False)
+            
             edit_v = st.data_editor(df_v, use_container_width=True, hide_index=True, key="ed_vendas", column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False), "recebido_user": st.column_config.CheckboxColumn("Recebido pelo Usuário?", disabled=True)})
-            st.markdown("<br>", unsafe_allow_html=True); c_check_zap_1, c_check_sms_1, c_btn_save_1, c_btn_send_1 = st.columns([0.8, 0.8, 1.2, 1.5])
-            with c_check_zap_1: usar_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_vendas_tab1") 
-            with c_check_sms_1: usar_sms = st.checkbox("SMS", value=False, key="chk_sms_vendas_tab1") 
-            with c_btn_save_1:
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            # BOTÕES CENTRALIZADOS
+            c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
+            with c2:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
                     st.cache_data.clear() 
                     try:
@@ -501,11 +536,11 @@ def tela_admin():
                             s.commit()
                         registrar_log("Admin", "Editou vendas"); modal_sucesso_salvamento(f"Tabela Vendas atualizada. {len(edit_v)} registros processados.")
                     except Exception as e: st.error(f"Erro ao salvar: {e}")
-            with c_btn_send_1:
+            with c3:
                 if st.button("📤 Enviar Selecionados", type="primary", use_container_width=True):
                     sel = edit_v[edit_v['Enviar'] == True]
                     if sel.empty: st.warning("Ninguém selecionado.")
-                    else: processar_envios_dialog(sel, usar_zap, usar_sms, tipo_envio="vendas")
+                    else: processar_envios_dialog(sel, "vendas")
     with t2:
         with st.expander("💎 Configurar Valor do Ponto Individualizado"):
             df_users_list = run_query("SELECT id, usuario, nome, valor_ponto FROM usuarios ORDER BY nome")
@@ -544,10 +579,11 @@ def tela_admin():
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
             edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f")})
-            st.markdown("<br>", unsafe_allow_html=True); c_check_zap_2, c_check_sms_2, c_btn_save_2, c_btn_send_2 = st.columns([0.8, 0.8, 1.2, 1.5])
-            with c_check_zap_2: aviso_zap = st.checkbox("WhatsApp", value=True, key="chk_zap_saldos_tab2") 
-            with c_check_sms_2: aviso_sms = st.checkbox("SMS", value=False, key="chk_sms_saldos_tab2") 
-            with c_btn_save_2:
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            # BOTÕES CENTRALIZADOS
+            c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
+            with c2:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_users"):
                     st.cache_data.clear()
                     try:
@@ -558,11 +594,11 @@ def tela_admin():
                             s.commit()
                         registrar_log("Admin", "Editou usuários na tabela"); modal_sucesso_salvamento(f"Tabela Usuários salva. {len(edit_u)} registros.")
                     except Exception as e: st.error(f"Erro ao salvar: {e}")
-            with c_btn_send_2:
+            with c3:
                 if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
                     sel = edit_u[edit_u['Notificar'] == True]
                     if sel.empty: st.warning("Ninguém selecionado.")
-                    else: processar_envios_dialog(sel, aviso_zap, aviso_sms, tipo_envio="usuarios")
+                    else: processar_envios_dialog(sel, "usuarios")
     with t3:
         with st.expander("⚙️ Reprecificação em Massa (Valor do Ponto)"):
             st.info("ℹ️ Utilize esta ferramenta para ajustar o preço de **TODOS** os produtos de uma só vez com base no valor do ponto em Reais.")
