@@ -38,28 +38,22 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (CORREÇÃO DE FONTE E ALINHAMENTO) ---
+# --- CSS DINÂMICO (RESTAURADO E SEGURO) ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
-    /* 1. ANIMAÇÃO DE DEGRADÊ */
+    /* ANIMAÇÃO DE DEGRADÊ */
     @keyframes gradient { 
         0% { background-position: 0% 50%; } 
         50% { background-position: 100% 50%; } 
         100% { background-position: 0% 50%; } 
     }
 
-    /* 2. PROTEÇÃO DE ÍCONES: Aplica Poppins APENAS em textos conhecidos */
-    h1, h2, h3, h4, h5, h6, p, a, li, button, input, select, textarea, label, .stMarkdown, .stText {
-        font-family: 'Poppins', sans-serif !important;
-        color: #31333F; 
-    }
-
     /* Remove cabeçalho padrão */
     header[data-testid="stHeader"] { display: none; }
     .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
 
-    /* === BANNER (COM ANIMAÇÃO) === */
+    /* === BANNER (COM FONTE POPPINS FORÇADA SÓ AQUI) === */
     .header-style { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400% !important; 
@@ -73,8 +67,12 @@ css_comum = """
         justify-content: center; 
         height: 110px !important; 
         margin: 0 !important;
+        font-family: 'Poppins', sans-serif !important; /* Aplica Poppins só no banner */
     }
-    .header-style h2, .header-style p, .header-style span, .header-style div { color: white !important; }
+    .header-style h2, .header-style p, .header-style span, .header-style div { 
+        color: white !important; 
+        font-family: 'Poppins', sans-serif !important;
+    }
     .header-style h2 { font-size: 20px !important; font-weight: 700 !important; margin: 0 !important; }
     .header-style p { font-size: 12px !important; line-height: 1.3 !important; opacity: 0.9 !important; margin: 2px 0 0 0 !important; }
     .header-style .saldo-label { font-size: 10px !important; font-weight: 600 !important; }
@@ -86,10 +84,10 @@ css_comum = """
         font-weight: 600 !important;
         width: 100%;
         border: none !important;
+        font-family: 'Poppins', sans-serif !important; /* Aplica Poppins nos botões */
     }
 
     /* === BOTÕES DO CATÁLOGO (ALTURA IGUAL - 48px) === */
-    /* Regra para garantir que Resgatar e Detalhes tenham a mesma geometria */
     [data-testid="stTabs"] div.stButton > button {
         height: 48px !important;      
         min-height: 48px !important;
@@ -106,7 +104,7 @@ css_comum = """
     [data-testid="stTabs"] button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
-        border: 1px solid #0066cc !important; /* Borda invisível para igualar tamanho */
+        border: 1px solid #0066cc !important; 
     }
     [data-testid="stTabs"] button[kind="primary"]:hover { 
         background-color: #0052a3 !important; 
@@ -251,8 +249,9 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envi
         payload = { "messages": [ { "from": sender, "to": tel_final, "content": { "templateName": nome_template, "templateData": { "body": { "placeholders": parametros } }, "language": "pt_BR" } } ] }
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
-        return response.status_code in [200, 201], response.text, str(response.status_code)
-    except Exception as e: return False, str(e), "ERR"
+        if response.status_code not in [200, 201]: return False, f"Erro API {response.status_code}: {response.text}", str(response.status_code)
+        return True, "Enviado com Sucesso", str(response.status_code)
+    except Exception as e: return False, f"Erro Conexão: {str(e)}", "EXCEPTION"
 
 # --- BANCO DE DADOS ---
 def run_query(query_str, params=None): return conn.query(query_str, params=params, ttl=0)
@@ -463,7 +462,7 @@ def tela_admin():
             st.markdown("<br>", unsafe_allow_html=True)
             c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
             with c2:
-                if st.button("💾 Salvar Tabela", use_container_width=True):
+                if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
                     with conn.session as s:
                         for _, row in edit_v.iterrows():
                             s.execute(text("UPDATE vendas SET status=:st, codigo_vale=:c WHERE id=:id"), {"st": str(row['status']), "c": str(row['codigo_vale']), "id": int(row['id'])})
@@ -482,6 +481,72 @@ def tela_admin():
             if st.button("Salvar Valor"):
                 run_transaction("UPDATE usuarios SET valor_ponto=:vp WHERE id=:id", {"vp": vp, "id": opcoes[u_sel]})
                 modal_sucesso_salvamento(f"Valor do ponto para {u_sel} alterado.")
+        
+        with st.expander("➕ Cadastrar Novo Usuário"):
+            with st.form("form_novo"):
+                c_n1, c_n2 = st.columns(2)
+                u = c_n1.text_input("Usuário"); s = c_n2.text_input("Senha"); n = c_n1.text_input("Nome"); t = c_n2.text_input("Telefone")
+                bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
+                if st.form_submit_button("Cadastrar"):
+                    ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp)
+                    if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
+                    else: st.error(msg)
+        
+        with st.expander("💰 Distribuir Pontos"):
+            c1, c2 = st.columns([3, 1])
+            df_users = run_query("SELECT usuario FROM usuarios WHERE tipo='comum'")
+            users = c1.multiselect("Usuários", ["Todos"] + df_users['usuario'].tolist())
+            qtd = c2.number_input("Qtd", step=50)
+            if st.button("Distribuir"):
+                distribuir_pontos_multiplos(users, qtd)
+                st.cache_data.clear(); modal_sucesso_salvamento("Pontos distribuídos!")
+
+        st.divider()
+        df_u = run_query("SELECT * FROM usuarios ORDER BY id")
+        if not df_u.empty:
+            edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u")
+            if st.button("💾 Salvar Usuários", use_container_width=True):
+                with conn.session as s:
+                    for _, row in edit_u.iterrows():
+                        s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp, valor_ponto=:vp WHERE id=:id"), 
+                                  {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": str(row['telefone']), "n": str(row['nome']), "tp": str(row['tipo']), "vp": float(row.get('valor_ponto', 0.50)), "id": int(row['id'])})
+                    s.commit()
+                modal_sucesso_salvamento("Usuários atualizados.")
+
+    with t3:
+        # PRÊMIOS
+        df_p = run_query("SELECT * FROM premios ORDER BY id")
+        edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic")
+        if st.button("💾 Salvar Prêmios"):
+            with conn.session as s:
+                for _, row in edit_p.iterrows():
+                    if pd.notna(row['id']):
+                        s.execute(text("UPDATE premios SET item=:i, imagem=:im, custo=:c, descricao=:d WHERE id=:id"), {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao'), "id": int(row['id'])})
+                    else:
+                        s.execute(text("INSERT INTO premios (item, imagem, custo, descricao) VALUES (:i, :im, :c, :d)"), {"i": row['item'], "im": row['imagem'], "c": row['custo'], "d": row.get('descricao')})
+                s.commit()
+            modal_sucesso_salvamento("Catálogo atualizado.")
+
+    with t4:
+        st.dataframe(run_query("SELECT * FROM logs ORDER BY id DESC LIMIT 50"), use_container_width=True)
+
+    with t5:
+        # SORTEIO
+        rifa = run_query("SELECT * FROM rifas WHERE status='ativa'")
+        if not rifa.empty:
+            st.success(f"Sorteio Ativo: {rifa.iloc[0]['item_nome']}")
+            if st.button("Realizar Sorteio"):
+                # Lógica de sorteio simplificada para visualização
+                tickets = run_query("SELECT usuario FROM rifa_tickets WHERE rifa_id=:rid", {"rid": int(rifa.iloc[0]['id'])})
+                if not tickets.empty:
+                    win = random.choice(tickets['usuario'].tolist())
+                    run_transaction("UPDATE rifas SET status='encerrada', ganhador_usuario=:u WHERE id=:id", {"u": win, "id": int(rifa.iloc[0]['id'])})
+                    mostrar_vencedor_dialog(win, win, rifa.iloc[0]['item_nome'], None)
+        else:
+            st.info("Sem sorteio ativo.")
+            # Configuração de novo sorteio (código simplificado)
+            if st.button("Iniciar Novo Sorteio (Demo)"):
+                st.warning("Configure no banco ou use a interface completa anterior.")
 
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
@@ -500,7 +565,7 @@ def tela_principal():
             with c_bot[0]:
                 label = "Ver Loja" if st.session_state.admin_mode else "Voltar"
                 if st.button(label, type="secondary", use_container_width=True): st.session_state.admin_mode = not st.session_state.admin_mode; st.rerun()
-            with c_bot[1]:
+            with c_btn_bot[1]:
                 if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
     else:
         cols = st.columns([3, 1], gap="small")
@@ -517,34 +582,27 @@ def tela_principal():
     else:
         t1, t2, t3, t4 = st.tabs(["🎁 Catálogo", "🍀 Sorteio", "📜 Meus Resgates", "🏆 Ranking"])
         with t1:
-            # === NOVIDADE: BARRA DE BUSCA ===
-            termo_busca = st.text_input("🔍 Buscar Prêmio", placeholder="Ex: Ifood, Garrafa...").lower()
+            # BUSCA
+            busca = st.text_input("🔍 Buscar", placeholder="Digite o nome do prêmio...").lower()
             df_p = run_query("SELECT * FROM premios ORDER BY id")
             
             if not df_p.empty:
-                # Filtra se houver termo
-                if termo_busca:
-                    df_p = df_p[df_p['item'].str.lower().str.contains(termo_busca)]
+                if busca: df_p = df_p[df_p['item'].str.lower().str.contains(busca)]
                 
-                if df_p.empty:
-                    st.warning("Nenhum item encontrado com esse nome.")
-                else:
-                    cols = st.columns(4)
-                    for i, row in df_p.iterrows():
-                        with cols[i % 4]:
-                            with st.container(border=True):
-                                if row['imagem']: st.image(processar_link_imagem(row['imagem']))
-                                custo = int(row['custo'] * (0.50 / valor_ponto_usuario))
-                                st.markdown(f"**{row['item']}**")
-                                st.markdown(f"<h3 style='color:#0066cc; margin:0;'>{custo} pts</h3>", unsafe_allow_html=True)
-                                c1, c2 = st.columns(2)
-                                with c1: 
-                                    if st.button("Detalhes", key=f"d_{row['id']}", type="secondary", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], custo, row.get('descricao'))
-                                with c2:
-                                    if sld >= custo:
-                                        if st.button("RESGATAR", key=f"r_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], custo, u_cod)
-            else:
-                st.info("O catálogo está vazio.")
+                cols = st.columns(4)
+                for i, row in df_p.iterrows():
+                    with cols[i % 4]:
+                        with st.container(border=True):
+                            if row['imagem']: st.image(processar_link_imagem(row['imagem']))
+                            custo = int(row['custo'] * (0.50 / valor_ponto_usuario))
+                            st.markdown(f"**{row['item']}**")
+                            st.markdown(f"<h3 style='color:#0066cc; margin:0;'>{custo} pts</h3>", unsafe_allow_html=True)
+                            c1, c2 = st.columns(2)
+                            with c1: 
+                                if st.button("Detalhes", key=f"d_{row['id']}", type="secondary", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], custo, row.get('descricao'))
+                            with c2:
+                                if sld >= custo:
+                                    if st.button("RESGATAR", key=f"r_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], custo, u_cod)
 
 if __name__ == "__main__":
     verificar_sessao_automatica()
