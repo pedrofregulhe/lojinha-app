@@ -712,23 +712,36 @@ def tela_principal():
     else:
         t1, t2, t3, t4 = st.tabs(["🎁 Catálogo", "🍀 Sorteio", "📜 Meus Resgates", "🏆 Ranking"])
         with t1:
+            # === NOVA BARRA DE BUSCA ===
+            busca = st.text_input("🔍 Buscar Produtos", placeholder="Digite o nome do prêmio...")
+            
             df_p = run_query("SELECT * FROM premios ORDER BY id")
             if not df_p.empty:
-                cols = st.columns(4)
-                for i, row in df_p.iterrows():
-                    with cols[i % 4]:
-                        with st.container(border=True):
-                            if row['imagem']: st.image(processar_link_imagem(row['imagem']))
-                            fator_conversao = valor_padrao_ponto / valor_ponto_usuario
-                            custo_final = int(row['custo'] * fator_conversao)
-                            st.markdown(f"**{row['item']}**")
-                            st.markdown(f"<div style='color:{'#0066cc' if sld >= custo_final else '#999'}; font-weight:bold;'>{custo_final} pts</div>", unsafe_allow_html=True)
-                            c_detalhe, c_resgate = st.columns([1, 1]) 
-                            with c_detalhe:
-                                if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], custo_final, row.get('descricao', ''))
-                            with c_resgate:
-                                if sld >= custo_final:
-                                    if st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], custo_final, u_cod)
+                # LÓGICA DE FILTRO
+                if busca:
+                    df_p = df_p[df_p['item'].str.contains(busca, case=False, na=False)]
+                
+                if df_p.empty:
+                    st.warning("Nenhum produto encontrado com este termo.")
+                else:
+                    cols = st.columns(4)
+                    for i, row in df_p.iterrows():
+                        with cols[i % 4]:
+                            with st.container(border=True):
+                                if row['imagem']: st.image(processar_link_imagem(row['imagem']))
+                                fator_conversao = valor_padrao_ponto / valor_ponto_usuario
+                                custo_final = int(row['custo'] * fator_conversao)
+                                st.markdown(f"**{row['item']}**")
+                                st.markdown(f"<div style='color:{'#0066cc' if sld >= custo_final else '#999'}; font-weight:bold;'>{custo_final} pts</div>", unsafe_allow_html=True)
+                                c_detalhe, c_resgate = st.columns([1, 1]) 
+                                with c_detalhe:
+                                    if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], custo_final, row.get('descricao', ''))
+                                with c_resgate:
+                                    if sld >= custo_final:
+                                        if st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], custo_final, u_cod)
+            else:
+                st.info("O catálogo está vazio.")
+
         with t2:
             rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
             if not rifa_ativa.empty:
