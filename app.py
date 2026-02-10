@@ -38,25 +38,31 @@ if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificaca
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
 if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario_temp'] = {}
 
-# --- CSS DINÂMICO (CORREÇÃO FINAL DE ALTURA DOS BOTÕES) ---
+# --- CSS DINÂMICO (ANIMAÇÃO RESTAURADA) ---
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
-    /* 1. CORREÇÃO DO _arrow_right_: Aplica fonte APENAS em elementos de texto reais */
+    /* 1. ANIMAÇÃO DE DEGRADÊ (RESTAURADA) */
+    @keyframes gradient { 
+        0% { background-position: 0% 50%; } 
+        50% { background-position: 100% 50%; } 
+        100% { background-position: 0% 50%; } 
+    }
+
+    /* 2. FONTES */
     h1, h2, h3, h4, h5, h6, p, a, li, button, input, select, textarea, label, .stMarkdown, .stText {
         font-family: 'Poppins', sans-serif !important;
         color: #31333F; 
     }
     
-    /* Remove cabeçalho padrão */
     header[data-testid="stHeader"] { display: none; }
     .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
 
-    /* === BANNER === */
+    /* === BANNER (COM ANIMAÇÃO) === */
     .header-style { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
-        background-size: 400% 400%; 
-        animation: gradient 10s ease infinite; 
+        background-size: 400% 400% !important; 
+        animation: gradient 10s ease infinite !important; 
         padding: 0 25px; 
         border-radius: 12px; 
         color: white !important; 
@@ -81,38 +87,29 @@ css_comum = """
         border: none !important;
     }
 
-    /* === BOTÕES DO CATÁLOGO (ALTURA IDÊNTICA FORÇADA) === */
+    /* === BOTÕES DO CATÁLOGO (ALTURA IGUAL - 45px) === */
     [data-testid="stTabs"] div.stButton > button {
-        height: 46px !important;         /* Altura fixa exata */
-        min-height: 46px !important;
-        max-height: 46px !important;
+        height: 45px !important;      
+        min-height: 45px !important;
+        max-height: 45px !important;
         margin-top: auto !important;
-        padding-top: 0 !important;       /* Remove padding vertical padrão */
-        padding-bottom: 0 !important;    /* Remove padding vertical padrão */
-        border-width: 1px !important;    /* Garante que ambos tenham borda de 1px */
-        border-style: solid !important;
-        display: flex !important;        /* Garante alinhamento central do texto */
-        align-items: center !important;
-        justify-content: center !important;
     }
 
     /* Botão Resgatar (Azul) */
     [data-testid="stTabs"] button[kind="primary"] { 
         background-color: #0066cc !important; 
-        border-color: #0066cc !important; /* Borda da mesma cor do fundo para manter o tamanho */
         color: white !important; 
     }
     [data-testid="stTabs"] button[kind="primary"]:hover { 
         background-color: #0052a3 !important; 
-        border-color: #0052a3 !important;
     }
     [data-testid="stTabs"] button[kind="primary"] p { color: white !important; }
 
     /* Botão Detalhes (Branco) */
     [data-testid="stTabs"] button[kind="secondary"] { 
         background-color: #ffffff !important; 
-        border-color: #e0e0e0 !important; /* Borda cinza visível */
         color: #003366 !important; 
+        border: 1px solid #e0e0e0 !important; 
     }
     [data-testid="stTabs"] button[kind="secondary"]:hover { 
         background-color: #f5f5f5 !important;
@@ -127,7 +124,6 @@ css_comum = """
         min-height: 50px !important;
     }
 
-    /* IMAGENS */
     [data-testid="stImage"] img { height: 180px !important; object-fit: contain !important; border-radius: 10px; }
 
     /* RIFA E CARDS */
@@ -138,12 +134,17 @@ css_comum = """
 
     @media only screen and (max-width: 600px) {
         .header-style { height: auto !important; padding: 15px !important; text-align: center !important; }
+        div.stButton > button { height: 50px !important; }
     }
 """
 
 if not st.session_state.get('logado', False):
     estilo_especifico = """
-    .stApp { background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); background-size: 400% 400%; animation: gradient 15s ease infinite; }
+    .stApp { 
+        background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
+        background-size: 400% 400% !important; 
+        animation: gradient 15s ease infinite !important; 
+    }
     [data-testid="stForm"] { background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
     """
 else:
@@ -326,7 +327,14 @@ def distribuir_pontos_multiplos(lista_usuarios, quantidade):
         return True
     except Exception as e: return False
 
-# --- MODAIS ---
+# --- MODAIS E DIÁLOGOS ---
+@st.dialog("💾 Confirmação de Sistema")
+def modal_sucesso_salvamento(detalhes):
+    st.success("As alterações foram gravadas no banco de dados!")
+    st.code(f"LOG: {detalhes}\nTIMESTAMP: {datetime.now()}", language="sql")
+    if st.button("Fechar", type="primary"):
+        st.rerun()
+
 @st.dialog("🔐 Alterar Senha")
 def abrir_modal_senha(usuario_cod):
     n = st.text_input("Nova Senha", type="password"); c = st.text_input("Confirmar", type="password")
@@ -491,7 +499,7 @@ def tela_admin():
                             for i, row in edit_v.iterrows():
                                 s.execute(text("UPDATE vendas SET item=:item, valor=:valor, codigo_vale=:c, status=:st, nome_real=:n, telefone=:t, email=:e WHERE id=:id"), {"item": str(row['item']), "valor": float(row['valor']), "c": str(row['codigo_vale']), "st": str(row['status']), "n": str(row['nome_real']), "t": str(row['telefone']), "e": str(row.get('email', '')), "id": int(row['id'])})
                             s.commit()
-                        registrar_log("Admin", "Editou vendas"); st.success("Salvo com sucesso!"); time.sleep(1); st.rerun()
+                        registrar_log("Admin", "Editou vendas"); modal_sucesso_salvamento(f"Tabela Vendas atualizada. {len(edit_v)} registros processados.")
                     except Exception as e: st.error(f"Erro ao salvar: {e}")
             with c_btn_send_1:
                 if st.button("📤 Enviar Selecionados", type="primary", use_container_width=True):
@@ -511,7 +519,7 @@ def tela_admin():
                 if st.button("💾 Salvar Valor Personalizado", type="primary"):
                     try:
                         run_transaction("UPDATE usuarios SET valor_ponto = :vp WHERE id = :id", {"vp": novo_valor_ponto, "id": user_id_sel})
-                        st.cache_data.clear(); st.success(f"Atualizado! Para este usuário, 1 Ponto agora vale R$ {novo_valor_ponto:.2f}"); time.sleep(2); st.rerun()
+                        st.cache_data.clear(); modal_sucesso_salvamento(f"Usuário {user_id_sel} atualizado. Novo valor ponto: {novo_valor_ponto}")
                     except Exception as e: st.error(f"Erro: {e}")
         with st.expander("➕ Cadastrar Novo Usuário"):
             with st.form("form_novo"):
@@ -520,7 +528,7 @@ def tela_admin():
                 bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
                 if st.form_submit_button("Cadastrar"):
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp)
-                    if ok: st.cache_data.clear(); st.success(msg); time.sleep(1.5); st.rerun()
+                    if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
                     else: st.error(msg)
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=False):
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
@@ -530,7 +538,7 @@ def tela_admin():
             qtd_pontos = c_d2.number_input("Pontos", step=50, value=0)
             if c_d3.button("➕ Creditar", type="primary", use_container_width=True):
                 if qtd_pontos > 0 and target_users:
-                    if distribuir_pontos_multiplos(target_users, qtd_pontos): st.cache_data.clear(); st.success("Creditado com sucesso!"); time.sleep(2); st.rerun()
+                    if distribuir_pontos_multiplos(target_users, qtd_pontos): st.cache_data.clear(); modal_sucesso_salvamento(f"Crédito de {qtd_pontos}pts para {len(target_users)} usuários."); 
                 else: st.warning("Selecione alguém e um valor maior que 0.")
         st.divider(); df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
@@ -548,7 +556,7 @@ def tela_admin():
                                 v_ponto_salvar = float(row.get('valor_ponto', 0.50) or 0.50)
                                 s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp, valor_ponto=:vp WHERE id=:id"), {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": str(row['telefone']), "n": str(row['nome']), "tp": str(row['tipo']), "vp": v_ponto_salvar, "id": int(row['id'])})
                             s.commit()
-                        registrar_log("Admin", "Editou usuários na tabela"); st.success("Dados atualizados!"); time.sleep(1); st.rerun()
+                        registrar_log("Admin", "Editou usuários na tabela"); modal_sucesso_salvamento(f"Tabela Usuários salva. {len(edit_u)} registros.")
                     except Exception as e: st.error(f"Erro ao salvar: {e}")
             with c_btn_send_2:
                 if st.button("📤 Enviar Avisos", type="primary", use_container_width=True):
@@ -574,7 +582,7 @@ def tela_admin():
                                 for i, row in df_preview.iterrows():
                                     sess.execute(text("UPDATE premios SET custo = :c WHERE id = :id"), {"c": int(row['custo_novo']), "id": int(row['id'])})
                                 sess.commit()
-                            st.cache_data.clear(); st.balloons(); st.success("Preços atualizados com sucesso!"); time.sleep(2); st.rerun()
+                            st.cache_data.clear(); modal_sucesso_salvamento(f"Reprecificação em massa executada. Fator: {fator:.2f}")
                         except Exception as e: st.error(f"Erro ao atualizar: {e}")
         st.divider(); df_p = run_query("SELECT * FROM premios ORDER BY id")
         edit_p = st.data_editor(df_p, use_container_width=True, num_rows="dynamic", key="ed_p", column_config={"descricao": st.column_config.TextColumn("Descrição (Detalhes)", width="large")})
@@ -588,7 +596,7 @@ def tela_admin():
                         else:
                             if row['item']: sess.execute(text("INSERT INTO premios (item, imagem, custo, descricao) VALUES (:i, :im, :c, :d)"), {"i": str(row['item']), "im": str(row['imagem']), "c": float(row['custo']), "d": str(row.get('descricao', ''))})
                     sess.commit()
-                st.success("Salvo!"); st.rerun()
+                modal_sucesso_salvamento(f"Catálogo de Prêmios salvo. {len(edit_p)} itens.")
             except Exception as e: st.error(f"Erro ao salvar prêmios: {e}")
     with t4: st.dataframe(run_query("SELECT * FROM logs ORDER BY id DESC LIMIT 50"), use_container_width=True)
     with t5:
@@ -741,6 +749,6 @@ def tela_principal():
             else: st.info("Ranking ainda vazio.")
 
 if __name__ == "__main__":
-    verificar_sessao_automatica()
+    verificar_sessao_automatica() # <--- CHAMADA CORRIGIDA PARA O AUTO-LOGIN
     if st.session_state.get('logado', False): tela_principal()
     else: tela_login()
