@@ -33,6 +33,7 @@ if 'tipo_usuario' not in st.session_state: st.session_state['tipo_usuario'] = "c
 if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 if 'valor_ponto_usuario' not in st.session_state: st.session_state['valor_ponto_usuario'] = 0.50 
 if 'admin_mode' not in st.session_state: st.session_state['admin_mode'] = True 
+if 'supervisor_mode' not in st.session_state: st.session_state['supervisor_mode'] = True 
 
 if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificacao_2fa'] = False
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
@@ -42,14 +43,14 @@ if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
-    /* 1. ANIMAÇÃO DE DEGRADÊ (RESTAURADA) */
+    /* 1. ANIMAÇÃO DE DEGRADÊ */
     @keyframes gradient { 
         0% { background-position: 0% 50%; } 
         50% { background-position: 100% 50%; } 
         100% { background-position: 0% 50%; } 
     }
 
-    /* 2. CORREÇÃO DE FONTE (ICON FIX) */
+    /* 2. CORREÇÃO DE FONTE */
     h1, h2, h3, h4, h5, h6, p, a, li, button, input, select, textarea, label, .stMarkdown, .stText {
         font-family: 'Poppins', sans-serif !important;
         color: #31333F; 
@@ -59,7 +60,7 @@ css_comum = """
     header[data-testid="stHeader"] { display: none; }
     .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
 
-    /* === BANNER (COM ANIMAÇÃO) === */
+    /* === BANNER === */
     .header-style { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400% !important; 
@@ -88,7 +89,7 @@ css_comum = """
         border: none !important;
     }
 
-    /* === BOTÕES DO CATÁLOGO (ALTURA IGUAL - 45px) === */
+    /* === BOTÕES DO CATÁLOGO === */
     [data-testid="stTabs"] div.stButton > button {
         height: 45px !important;      
         min-height: 45px !important;
@@ -116,7 +117,7 @@ css_comum = """
         background-color: #f5f5f5 !important;
     }
 
-    /* === BOTÕES DO HEADER (USUÁRIO COMUM - EMPILHADOS) === */
+    /* === BOTÕES DO HEADER === */
     div[data-testid="column"] div.stButton > button[kind="secondary"] {
         background-color: #ffffff !important;
         color: #003366 !important;
@@ -315,8 +316,9 @@ def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_po
 def distribuir_pontos_multiplos(lista_usuarios, quantidade):
     try:
         if "Todos" in lista_usuarios:
-            run_transaction("UPDATE usuarios SET saldo = saldo + :q, pontos_historico = COALESCE(pontos_historico, 0) + :q WHERE tipo NOT IN ('admin', 'staff')", {"q": quantidade})
-            msg = f"Adicionou {quantidade} pts para TODOS."
+            # CORREÇÃO: Adicionado 'supervisor' na lista de exclusão
+            run_transaction("UPDATE usuarios SET saldo = saldo + :q, pontos_historico = COALESCE(pontos_historico, 0) + :q WHERE tipo NOT IN ('admin', 'staff', 'supervisor')", {"q": quantidade})
+            msg = f"Adicionou {quantidade} pts para TODOS (exceto staff/admin/supervisor)."
         else:
             with conn.session as s:
                 s.execute(
@@ -560,7 +562,6 @@ def tela_admin():
             with st.form("form_novo"):
                 c_n1, c_n2 = st.columns(2)
                 u = c_n1.text_input("Usuário"); s = c_n2.text_input("Senha"); n = c_n1.text_input("Nome"); t = c_n2.text_input("Telefone")
-                # ADICIONADO 'supervisor' NA LISTA DE TIPOS
                 bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff", "supervisor"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
                 if st.form_submit_button("Cadastrar"):
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp)
@@ -568,7 +569,8 @@ def tela_admin():
                     else: st.error(msg)
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=False):
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
-            df_users_list_dist = run_query("SELECT usuario FROM usuarios WHERE tipo NOT IN ('admin', 'staff') ORDER BY usuario")
+            # CORREÇÃO: Adicionado 'supervisor' na lista de exclusão
+            df_users_list_dist = run_query("SELECT usuario FROM usuarios WHERE tipo NOT IN ('admin', 'staff', 'supervisor') ORDER BY usuario")
             lista_users = df_users_list_dist['usuario'].tolist() if not df_users_list_dist.empty else []
             target_users = c_d1.multiselect("Selecione os Usuários", ["Todos"] + lista_users)
             qtd_pontos = c_d2.number_input("Pontos", step=50, value=0)
@@ -579,7 +581,6 @@ def tela_admin():
         st.divider(); df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
-            # ADICIONADO 'supervisor' NAS OPÇÕES DA TABELA EDITÁVEL
             edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff", "supervisor"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f")})
             
             st.markdown("<br>", unsafe_allow_html=True)
@@ -677,21 +678,7 @@ def tela_admin():
                 st.success("Sorteio Criado!"); st.rerun()
 
 def tela_supervisor():
-    u_cod = st.session_state.usuario_cod
-    st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Painel Supervisor 👁️</h2><p style="margin:0; opacity:0.9; color:white;">Acompanhamento total de resgates.</p></div></div></div>''', unsafe_allow_html=True)
-    st.write("")
-    
-    # Header de botões do supervisor
-    c1, c2, c3 = st.columns([4, 1, 1])
-    with c2:
-        if st.button("🔐 Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
-    with c3:
-        if st.button("❌ Sair", use_container_width=True): realizar_logout()
-
-    st.divider()
-    
     st.subheader("📦 Visão Geral de Todos os Resgates")
-    
     df_v = run_query("SELECT id, data, usuario, nome_real, item, valor, status, telefone, email, codigo_vale, recebido_user FROM vendas ORDER BY id DESC")
     
     if not df_v.empty:
@@ -721,7 +708,6 @@ def tela_supervisor():
     else:
         st.info("Nenhum registro de venda encontrado.")
 
-
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     valor_ponto_usuario = st.session_state.get('valor_ponto_usuario', 0.50); valor_padrao_ponto = 0.50 
@@ -742,10 +728,26 @@ def tela_principal():
             with c_btn_bot[1]:
                 if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
     
-    # NOVA LÓGICA DO SUPERVISOR
+    # NOVA LÓGICA DO SUPERVISOR (COM BOTÕES DE ALTERNÂNCIA)
     elif tipo == 'supervisor':
-        tela_supervisor()
-        return  # Encerra aqui para não carregar a loja comum embaixo
+        cols = st.columns([3, 1.5], gap="medium")
+        c_banner = cols[0]
+        with cols[1]:
+            # Botões específicos do Supervisor
+            c_btn_top = st.columns(2, gap="small")
+            c_btn_bot = st.columns(1, gap="small") # Botão largo embaixo
+            
+            with c_btn_top[0]:
+                 if st.button("Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+            with c_btn_top[1]:
+                if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
+            
+            with c_btn_bot[0]:
+                # Botão Toggle
+                label_sup = "Ver Loja" if st.session_state.supervisor_mode else "Painel Supervisor"
+                if st.button(label_sup, type="primary", use_container_width=True): 
+                    st.session_state.supervisor_mode = not st.session_state.supervisor_mode
+                    st.rerun()
 
     else:
         # Layout usuário comum: 2 colunas -> Banner (3) | Botões empilhados (1)
@@ -758,12 +760,20 @@ def tela_principal():
             if st.button("❌ Sair", type="secondary", use_container_width=True): realizar_logout()
     
     with c_banner:
-        st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Olá, {u_nome}! 👋</h2><p style="margin:0; opacity:0.9; color:white;">Agora você pode trocar seus pontos por prêmios incríveis!</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
+        titulo_painel = "Painel Supervisor 👁️" if (tipo == 'supervisor' and st.session_state.supervisor_mode) else f"Olá, {u_nome}! 👋"
+        subtitulo = "Acompanhamento total de resgates." if (tipo == 'supervisor' and st.session_state.supervisor_mode) else "Agora você pode trocar seus pontos por prêmios incríveis!"
+        
+        st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">{titulo_painel}</h2><p style="margin:0; opacity:0.9; color:white;">{subtitulo}</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
     
     st.divider()
     
-    if tipo == 'admin' and st.session_state.admin_mode: tela_admin()
+    # RENDERIZAÇÃO CONDICIONAL
+    if tipo == 'admin' and st.session_state.admin_mode: 
+        tela_admin()
+    elif tipo == 'supervisor' and st.session_state.supervisor_mode: 
+        tela_supervisor()
     else:
+        # TELA COMUM (LOJA)
         t1, t2, t3, t4 = st.tabs(["🎁 Catálogo", "🍀 Sorteio", "📜 Meus Resgates", "🏆 Ranking"])
         with t1:
             # === NOVA BARRA DE BUSCA ===
@@ -779,8 +789,6 @@ def tela_principal():
                     st.warning("Nenhum produto encontrado com este termo.")
                 else:
                     cols = st.columns(4)
-                    # CORREÇÃO AQUI: Usamos enumerate para garantir contagem sequencial (0, 1, 2, 3...)
-                    # index_db é o ID original do banco (ignorado para layout), i é a posição na tela
                     for i, (index_db, row) in enumerate(df_p.iterrows()):
                         with cols[i % 4]:
                             with st.container(border=True):
@@ -793,7 +801,6 @@ def tela_principal():
                                 with c_detalhe:
                                     if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], custo_final, row.get('descricao', ''))
                                 with c_resgate:
-                                    # Mantemos a lógica original: Botão só aparece se tiver saldo
                                     if sld >= custo_final:
                                         if st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], custo_final, u_cod)
             else:
@@ -848,7 +855,8 @@ def tela_principal():
         with t4:
             st.markdown("### 🏆 Top Users (Histórico)")
             st.caption("Este ranking considera todos os pontos já ganhos, independente se já foram gastos ou zerados.")
-            df_rank = run_query("SELECT usuario, pontos_historico FROM usuarios WHERE tipo NOT IN ('admin', 'staff') ORDER BY pontos_historico DESC LIMIT 10")
+            # CORREÇÃO: Adicionado 'supervisor' na lista de exclusão do Ranking
+            df_rank = run_query("SELECT usuario, pontos_historico FROM usuarios WHERE tipo NOT IN ('admin', 'staff', 'supervisor') ORDER BY pontos_historico DESC LIMIT 10")
             if not df_rank.empty:
                 df_rank['pontos_historico'] = df_rank['pontos_historico'].fillna(0).astype(int)
                 df_rank = df_rank.rename(columns={"usuario": "Usuário", "pontos_historico": "Pontos Acumulados"})
