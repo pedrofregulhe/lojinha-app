@@ -1,7 +1,7 @@
 import streamlit as st
 from sqlalchemy import text
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import base64
 import bcrypt
@@ -17,10 +17,17 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 # --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
 
-# --- ROBÔ DE ATUALIZAÇÃO DO BANCO ---
+# --- ROBÔ DE ATUALIZAÇÃO DO BANCO (MIGRAÇÕES) ---
 with conn.session as s:
     try:
+        # Colunas originais
         s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS valor_ponto FLOAT DEFAULT 0.50;"))
+        # Novas colunas de Segurança e LGPD
+        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS consentimento_lgpd BOOLEAN DEFAULT FALSE;"))
+        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS data_consentimento TIMESTAMP;"))
+        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_expira_em TIMESTAMP;"))
+        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token TEXT;"))
+        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token_expira TIMESTAMP;"))
         s.commit()
     except Exception:
         pass 
@@ -43,24 +50,20 @@ if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
-    /* 1. ANIMAÇÃO DE DEGRADÊ */
     @keyframes gradient { 
         0% { background-position: 0% 50%; } 
         50% { background-position: 100% 50%; } 
         100% { background-position: 0% 50%; } 
     }
 
-    /* 2. CORREÇÃO DE FONTE */
     h1, h2, h3, h4, h5, h6, p, a, li, button, input, select, textarea, label, .stMarkdown, .stText {
         font-family: 'Poppins', sans-serif !important;
         color: #31333F; 
     }
     
-    /* Remove cabeçalho padrão */
     header[data-testid="stHeader"] { display: none; }
     .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
 
-    /* === BANNER === */
     .header-style { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
         background-size: 400% 400% !important; 
@@ -81,7 +84,6 @@ css_comum = """
     .header-style .saldo-label { font-size: 10px !important; font-weight: 600 !important; }
     .header-style .saldo-valor { font-size: 30px !important; font-weight: 900 !important; text-shadow: 0 2px 4px rgba(0,0,0,0.15); }
 
-    /* === BOTÕES GERAIS === */
     div.stButton > button {
         border-radius: 8px !important;
         font-weight: 600 !important;
@@ -89,7 +91,6 @@ css_comum = """
         border: none !important;
     }
 
-    /* === BOTÕES DO CATÁLOGO === */
     [data-testid="stTabs"] div.stButton > button {
         height: 45px !important;      
         min-height: 45px !important;
@@ -97,7 +98,6 @@ css_comum = """
         margin-top: auto !important;
     }
 
-    /* Botão Resgatar (Azul) */
     [data-testid="stTabs"] button[kind="primary"] { 
         background-color: #0066cc !important; 
         color: white !important; 
@@ -107,7 +107,6 @@ css_comum = """
     }
     [data-testid="stTabs"] button[kind="primary"] p { color: white !important; }
 
-    /* Botão Detalhes (Branco) */
     [data-testid="stTabs"] button[kind="secondary"] { 
         background-color: #ffffff !important; 
         color: #003366 !important; 
@@ -117,7 +116,6 @@ css_comum = """
         background-color: #f5f5f5 !important;
     }
 
-    /* === BOTÕES DO HEADER === */
     div[data-testid="column"] div.stButton > button[kind="secondary"] {
         background-color: #ffffff !important;
         color: #003366 !important;
@@ -126,10 +124,8 @@ css_comum = """
         min-height: 50px !important;
     }
 
-    /* IMAGENS */
     [data-testid="stImage"] img { height: 180px !important; object-fit: contain !important; border-radius: 10px; }
 
-    /* RIFA E CARDS */
     .rifa-card { border: 2px solid #FFD700; background: linear-gradient(to bottom right, #fffdf0, #ffffff); padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
     .rifa-tag { background-color: #FFD700; color: #000; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; margin-bottom: 10px; display: inline-block; }
     .winner-card { border: 2px solid #28a745; background: linear-gradient(to bottom right, #f0fff4, #ffffff); padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
@@ -183,11 +179,14 @@ def formatar_telefone(tel):
     if 10 <= len(apenas_numeros) <= 11: apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
-# --- GERENCIAMENTO DE SESSÃO ---
+# --- GERENCIAMENTO DE SESSÃO COM EXPIRAÇÃO ---
 def criar_sessao_persistente(usuario_id):
     token = str(uuid.uuid4())
+    # Define expiração para 24 horas a partir de agora
+    expira_em = datetime.now() + timedelta(hours=24)
     with conn.session as s:
-        s.execute(text("UPDATE usuarios SET token_sessao = :t WHERE id = :id"), {"t": token, "id": usuario_id})
+        s.execute(text("UPDATE usuarios SET token_sessao = :t, token_expira_em = :exp WHERE id = :id"), 
+                  {"t": token, "exp": expira_em, "id": usuario_id})
         s.commit()
     st.query_params["sessao"] = token
 
@@ -196,7 +195,8 @@ def verificar_sessao_automatica():
     token_url = st.query_params.get("sessao")
     if token_url:
         try:
-            df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t", {"t": token_url})
+            # Verifica se token existe E se NÃO expirou
+            df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t AND token_expira_em > NOW()", {"t": token_url})
             if not df.empty:
                 row = df.iloc[0]
                 st.session_state.update({
@@ -208,6 +208,10 @@ def verificar_sessao_automatica():
                     'valor_ponto_usuario': float(row.get('valor_ponto', 0.50) or 0.50)
                 })
                 st.rerun()
+            else:
+                # Se o token existe na URL mas não retornou, pode ter expirado. Limpa a URL.
+                if st.query_params.get("sessao"):
+                    st.query_params.clear()
         except Exception:
             pass
 
@@ -303,20 +307,26 @@ def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
         return True, "Ticket comprado com sucesso!"
     except Exception as e: return False, f"Erro: {str(e)}"
 
-def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_ponto=0.50):
+# --- NOVO CADASTRO COM LGPD ---
+def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_ponto=0.50, consentimento_lgpd=False):
     try:
         df = run_query("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario})
         if not df.empty: return False, "Usuário já existe!"
-        run_transaction("INSERT INTO usuarios (usuario, senha, nome, saldo, pontos_historico, tipo, telefone, valor_ponto) VALUES (:u, :s, :n, :bal, :bal, :t, :tel, :vp)",
-            {"u": usuario, "s": gerar_hash(senha), "n": nome, "bal": saldo, "t": tipo, "tel": formatar_telefone(telefone), "vp": valor_ponto})
-        registrar_log("Novo Cadastro", f"Criou usuário: {usuario}")
+        
+        # Define a data do consentimento apenas se o checkbox foi marcado
+        data_cons = datetime.now() if consentimento_lgpd else None
+
+        run_transaction(
+            "INSERT INTO usuarios (usuario, senha, nome, saldo, pontos_historico, tipo, telefone, valor_ponto, consentimento_lgpd, data_consentimento) VALUES (:u, :s, :n, :bal, :bal, :t, :tel, :vp, :lgpd, :dt_lgpd)",
+            {"u": usuario, "s": gerar_hash(senha), "n": nome, "bal": saldo, "t": tipo, "tel": formatar_telefone(telefone), "vp": valor_ponto, "lgpd": consentimento_lgpd, "dt_lgpd": data_cons}
+        )
+        registrar_log("Novo Cadastro", f"Criou usuário: {usuario} (LGPD: {consentimento_lgpd})")
         return True, "Cadastrado com sucesso!"
     except Exception as e: return False, f"Erro: {str(e)}"
 
 def distribuir_pontos_multiplos(lista_usuarios, quantidade):
     try:
         if "Todos" in lista_usuarios:
-            # CORREÇÃO: Adicionado 'supervisor' na lista de exclusão
             run_transaction("UPDATE usuarios SET saldo = saldo + :q, pontos_historico = COALESCE(pontos_historico, 0) + :q WHERE tipo NOT IN ('admin', 'staff', 'supervisor')", {"q": quantidade})
             msg = f"Adicionou {quantidade} pts para TODOS (exceto staff/admin/supervisor)."
         else:
@@ -348,23 +358,91 @@ def abrir_modal_senha(usuario_cod):
             registrar_log("Senha Alterada", f"Usuário: {usuario_cod}")
             st.success("Sucesso!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
 
-@st.dialog("🔑 Gerar Senha Provisória")
-def abrir_modal_resete_senha(titulo_janela="Recuperar Senha"):
-    st.write(f"**{titulo_janela}**")
-    st.write("Digite o nome de usuário (login). Se ele existir, enviaremos uma senha provisória via SMS para o telefone cadastrado.")
-    user_input = st.text_input("Usuário (Login)")
-    if st.button("Gerar e Enviar SMS", type="primary"):
+# --- NOVO FLUXO: ESQUECI MINHA SENHA POR LINK ---
+@st.dialog("🔑 Recuperar Acesso")
+def enviar_link_recuperacao():
+    st.write("Digite seu login. Enviaremos um link seguro via SMS para redefinir sua senha.")
+    user_input = st.text_input("Login (Usuário)")
+    
+    if st.button("Enviar Link de Redefinição", type="primary"):
         df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
-        if df.empty: st.error("Usuário não encontrado.")
-        else:
-            row = df.iloc[0]; tel = str(row['telefone'])
-            if len(formatar_telefone(tel)) < 12: st.error("Telefone inválido."); return
-            nova_senha = gerar_senha_aleatoria(); nova_senha_hash = gerar_hash(nova_senha); user_id = int(row['id']) 
+        if df.empty:
+            st.error("Usuário não encontrado.")
+            return
+
+        row = df.iloc[0]
+        tel = str(row['telefone'])
+        
+        # 1. Gerar Token e Data de Expiração (15 minutos)
+        reset_token = str(uuid.uuid4())
+        expiracao = datetime.now() + timedelta(minutes=15)
+        
+        # 2. Salvar no Banco
+        try:
             with conn.session as s:
-                s.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {"s": nova_senha_hash, "id": user_id}); s.commit()
-            ok, det, cod = enviar_sms(tel, f"Sua senha provisoria e: {nova_senha}. Acesse e troque.")
-            if ok: st.success(f"Sucesso! SMS enviado."); registrar_log(titulo_janela, f"Usuário: {row['usuario']}"); time.sleep(4); st.rerun()
-            else: st.error(f"Erro ao enviar SMS: {det}")
+                s.execute(text("UPDATE usuarios SET reset_token = :rt, reset_token_expira = :exp WHERE id = :id"), 
+                          {"rt": reset_token, "exp": expiracao, "id": row['id']})
+                s.commit()
+            
+            # 3. Gerar Link (ATENÇÃO: Substitua pela URL real do seu app se mudar)
+            base_url = "https://lojinha-culligan.streamlit.app" 
+            link_completo = f"{base_url}/?rt={reset_token}"
+            
+            mensagem = f"Culli: Para redefinir sua senha, acesse o link (valido por 15 min): {link_completo}"
+            
+            # 4. Enviar SMS
+            ok, det, cod = enviar_sms(tel, mensagem)
+            
+            if ok:
+                st.success("Link enviado por SMS! Verifique seu celular.")
+                registrar_log("Solicitação Reset", f"Usuário: {row['usuario']}")
+                time.sleep(3); st.rerun()
+            else:
+                st.error(f"Erro ao enviar SMS: {det}")
+        except Exception as e:
+            st.error(f"Erro interno: {e}")
+
+# --- TELA DE REDEFINIÇÃO DE SENHA (TOKEN) ---
+def tela_nova_senha_token(token_url):
+    st.markdown("""<div style="text-align: center; margin-bottom: 20px;"><h2 style="color: #003366;">🔐 Nova Senha</h2><p>Defina sua nova senha de acesso.</p></div>""", unsafe_allow_html=True)
+    
+    # Validar Token
+    try:
+        df = run_query("SELECT * FROM usuarios WHERE reset_token = :rt AND reset_token_expira > NOW()", {"rt": token_url})
+        if df.empty:
+            st.error("🚫 Este link é inválido ou já expirou.")
+            if st.button("Voltar ao Início"):
+                st.query_params.clear()
+                st.rerun()
+            return
+
+        usuario_id = df.iloc[0]['id']
+        nome_user = df.iloc[0]['nome']
+        
+        st.info(f"Olá, **{nome_user}**! Digite sua nova senha abaixo.")
+        
+        with st.form("form_reset_final"):
+            nova1 = st.text_input("Nova Senha", type="password")
+            nova2 = st.text_input("Confirme a Senha", type="password")
+            
+            if st.form_submit_button("REDEFINIR SENHA", type="primary", use_container_width=True):
+                if nova1 == nova2 and len(nova1) >= 4:
+                    senha_hash = gerar_hash(nova1)
+                    # Atualiza senha e limpa o token para não ser usado de novo
+                    with conn.session as s:
+                        s.execute(text("UPDATE usuarios SET senha = :s, reset_token = NULL, reset_token_expira = NULL WHERE id = :id"), 
+                                  {"s": senha_hash, "id": usuario_id})
+                        s.commit()
+                    st.success("✅ Senha alterada com sucesso! Você será redirecionado.")
+                    st.query_params.clear()
+                    time.sleep(3)
+                    st.rerun()
+                else:
+                    st.error("As senhas não coincidem ou são muito curtas.")
+                    
+    except Exception as e:
+        st.error(f"Erro ao validar token: {e}")
+
 
 @st.dialog("🎁 Confirmar Resgate")
 def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
@@ -508,9 +586,10 @@ def tela_login():
                     else: st.toast("Usuário ou senha incorretos", icon="❌")
             st.write(""); c_esqueceu, c_primeiro = st.columns(2)
             with c_esqueceu:
-                if st.button("Esqueci a senha", type="secondary", use_container_width=True): abrir_modal_resete_senha("Recuperar Senha")
+                # Alterado para usar o NOVO FLUXO DE TOKEN
+                if st.button("Esqueci a senha", type="secondary", use_container_width=True): enviar_link_recuperacao()
             with c_primeiro:
-                if st.button("Primeiro Acesso?", type="secondary", use_container_width=True): abrir_modal_resete_senha("Primeiro Acesso")
+                if st.button("Primeiro Acesso?", type="secondary", use_container_width=True): enviar_link_recuperacao() # Usa mesmo fluxo de recuperação pois é seguro
 
 def tela_admin():
     st.subheader("🛠️ Painel Admin")
@@ -563,10 +642,17 @@ def tela_admin():
                 c_n1, c_n2 = st.columns(2)
                 u = c_n1.text_input("Usuário"); s = c_n2.text_input("Senha"); n = c_n1.text_input("Nome"); t = c_n2.text_input("Telefone")
                 bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff", "supervisor"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
+                
+                # CHECKBOX DE CONSENTIMENTO LGPD
+                lgpd = st.checkbox("✅ Termo de Consentimento LGPD Assinado?", help="Marque se o usuário consentiu com o armazenamento de dados.")
+                
                 if st.form_submit_button("Cadastrar"):
-                    ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp)
-                    if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
-                    else: st.error(msg)
+                    if not lgpd:
+                        st.error("É obrigatório confirmar o Consentimento LGPD.")
+                    else:
+                        ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp, lgpd)
+                        if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
+                        else: st.error(msg)
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=False):
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
             # CORREÇÃO: Adicionado 'supervisor' na lista de exclusão
@@ -581,7 +667,7 @@ def tela_admin():
         st.divider(); df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
-            edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff", "supervisor"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f")})
+            edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff", "supervisor"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f"), "consentimento_lgpd": st.column_config.CheckboxColumn("LGPD?", disabled=True)})
             
             st.markdown("<br>", unsafe_allow_html=True)
             # BOTÕES CENTRALIZADOS
@@ -864,6 +950,11 @@ def tela_principal():
             else: st.info("Ranking ainda vazio.")
 
 if __name__ == "__main__":
-    verificar_sessao_automatica() # <--- CHAMADA CORRIGIDA PARA O AUTO-LOGIN
-    if st.session_state.get('logado', False): tela_principal()
-    else: tela_login()
+    # VERIFICA SE TEM TOKEN DE RESET NA URL ANTES DE TUDO
+    qp = st.query_params
+    if "rt" in qp:
+        tela_nova_senha_token(qp["rt"])
+    else:
+        verificar_sessao_automatica()
+        if st.session_state.get('logado', False): tela_principal()
+        else: tela_login()
