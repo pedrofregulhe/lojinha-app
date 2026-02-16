@@ -725,7 +725,9 @@ def tela_principal():
                     st.warning("Nenhum produto encontrado com este termo.")
                 else:
                     cols = st.columns(4)
-                    for i, row in df_p.iterrows():
+                    # CORREÇÃO AQUI: Usamos enumerate para garantir contagem sequencial (0, 1, 2, 3...)
+                    # index_db é o ID original do banco (ignorado para layout), i é a posição na tela
+                    for i, (index_db, row) in enumerate(df_p.iterrows()):
                         with cols[i % 4]:
                             with st.container(border=True):
                                 if row['imagem']: st.image(processar_link_imagem(row['imagem']))
@@ -737,6 +739,7 @@ def tela_principal():
                                 with c_detalhe:
                                     if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], custo_final, row.get('descricao', ''))
                                 with c_resgate:
+                                    # Mantemos a lógica original: Botão só aparece se tiver saldo
                                     if sld >= custo_final:
                                         if st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], custo_final, u_cod)
             else:
@@ -776,7 +779,8 @@ def tela_principal():
                 else: st.info("Nenhum sorteio ativo no momento.")
         with t3:
             st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
-            meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE usuario = :u ORDER BY data DESC", {"u": u_cod})
+            # CORREÇÃO: Usamos LOWER() para garantir que encontre independentemente de maiúsculas/minúsculas
+            meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE LOWER(usuario) = LOWER(:u) ORDER BY data DESC", {"u": u_cod})
             if not meus_pedidos.empty:
                 editor_pedidos = st.data_editor(meus_pedidos, use_container_width=True, hide_index=True, key="editor_meus_pedidos", column_config={"id": st.column_config.TextColumn("ID", disabled=True), "data": st.column_config.DatetimeColumn("Data", disabled=True, format="DD/MM/YYYY"), "item": st.column_config.TextColumn("Item", disabled=True), "valor": st.column_config.NumberColumn("Valor", disabled=True), "status": st.column_config.TextColumn("Status", disabled=True), "codigo_vale": st.column_config.TextColumn("Código/Vale", disabled=True), "recebido_user": st.column_config.CheckboxColumn("Já Recebeu?", help="Marque se você já recebeu seu prêmio")}, disabled=["id", "data", "item", "valor", "status", "codigo_vale"])
                 if st.button("💾 Confirmar Recebimento"):
