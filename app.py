@@ -560,7 +560,8 @@ def tela_admin():
             with st.form("form_novo"):
                 c_n1, c_n2 = st.columns(2)
                 u = c_n1.text_input("Usuário"); s = c_n2.text_input("Senha"); n = c_n1.text_input("Nome"); t = c_n2.text_input("Telefone")
-                bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
+                # ADICIONADO 'supervisor' NA LISTA DE TIPOS
+                bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff", "supervisor"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
                 if st.form_submit_button("Cadastrar"):
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp)
                     if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
@@ -578,7 +579,8 @@ def tela_admin():
         st.divider(); df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
-            edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f")})
+            # ADICIONADO 'supervisor' NAS OPÇÕES DA TABELA EDITÁVEL
+            edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff", "supervisor"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f")})
             
             st.markdown("<br>", unsafe_allow_html=True)
             # BOTÕES CENTRALIZADOS
@@ -674,6 +676,52 @@ def tela_admin():
                 run_transaction("INSERT INTO rifas (premio_id, item_nome, custo_ticket, status) VALUES (:pid, :nome, :custo, 'ativa')", {"pid": premio_id, "nome": nome_premio, "custo": custo_rifa})
                 st.success("Sorteio Criado!"); st.rerun()
 
+def tela_supervisor():
+    u_cod = st.session_state.usuario_cod
+    st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">Painel Supervisor 👁️</h2><p style="margin:0; opacity:0.9; color:white;">Acompanhamento total de resgates.</p></div></div></div>''', unsafe_allow_html=True)
+    st.write("")
+    
+    # Header de botões do supervisor
+    c1, c2, c3 = st.columns([4, 1, 1])
+    with c2:
+        if st.button("🔐 Alterar Senha", use_container_width=True): abrir_modal_senha(u_cod)
+    with c3:
+        if st.button("❌ Sair", use_container_width=True): realizar_logout()
+
+    st.divider()
+    
+    st.subheader("📦 Visão Geral de Todos os Resgates")
+    
+    df_v = run_query("SELECT id, data, usuario, nome_real, item, valor, status, telefone, email, codigo_vale, recebido_user FROM vendas ORDER BY id DESC")
+    
+    if not df_v.empty:
+        # Filtros
+        c_filtro1, c_filtro2 = st.columns(2)
+        status_unicos = df_v['status'].unique().tolist()
+        filtro_status = c_filtro1.multiselect("Filtrar por Status", status_unicos)
+        busca_user = c_filtro2.text_input("Buscar Usuário (Nome ou Login)")
+
+        if filtro_status:
+            df_v = df_v[df_v['status'].isin(filtro_status)]
+        if busca_user:
+            df_v = df_v[df_v['usuario'].str.contains(busca_user, case=False, na=False) | df_v['nome_real'].str.contains(busca_user, case=False, na=False)]
+
+        st.metric("Total de Pedidos Encontrados", len(df_v))
+        
+        st.dataframe(
+            df_v,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "data": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm"),
+                "valor": st.column_config.NumberColumn("Valor (pts)"),
+                "recebido_user": st.column_config.CheckboxColumn("User Recebeu?")
+            }
+        )
+    else:
+        st.info("Nenhum registro de venda encontrado.")
+
+
 def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     valor_ponto_usuario = st.session_state.get('valor_ponto_usuario', 0.50); valor_padrao_ponto = 0.50 
@@ -693,6 +741,12 @@ def tela_principal():
                 if st.button(label, type="secondary", use_container_width=True): st.session_state.admin_mode = not st.session_state.admin_mode; st.rerun()
             with c_btn_bot[1]:
                 if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
+    
+    # NOVA LÓGICA DO SUPERVISOR
+    elif tipo == 'supervisor':
+        tela_supervisor()
+        return  # Encerra aqui para não carregar a loja comum embaixo
+
     else:
         # Layout usuário comum: 2 colunas -> Banner (3) | Botões empilhados (1)
         cols = st.columns([3, 1], gap="small")
