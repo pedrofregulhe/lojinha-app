@@ -423,8 +423,9 @@ def enviar_link_recuperacao():
         
         try:
             with conn.session as s:
+                # CORREÇÃO: row['id'] convertido para int()
                 s.execute(text("UPDATE usuarios SET reset_token = :rt, reset_token_expira = :exp WHERE id = :id"), 
-                          {"rt": reset_token, "exp": expiracao, "id": row['id']})
+                          {"rt": reset_token, "exp": expiracao, "id": int(row['id'])})
                 s.commit()
             
             # ATENÇÃO: Verifique se este é o link correto do seu app
@@ -456,7 +457,8 @@ def tela_nova_senha_token(token_url):
                 st.rerun()
             return
 
-        usuario_id = df.iloc[0]['id']
+        # CORREÇÃO: Converter ID para int()
+        usuario_id = int(df.iloc[0]['id'])
         nome_user = df.iloc[0]['nome']
         
         st.info(f"Olá, **{nome_user}**! Digite sua nova senha abaixo.")
