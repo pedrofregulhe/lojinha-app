@@ -41,6 +41,8 @@ if 'saldo_atual' not in st.session_state: st.session_state['saldo_atual'] = 0.0
 if 'valor_ponto_usuario' not in st.session_state: st.session_state['valor_ponto_usuario'] = 0.50 
 if 'admin_mode' not in st.session_state: st.session_state['admin_mode'] = True 
 if 'supervisor_mode' not in st.session_state: st.session_state['supervisor_mode'] = True 
+# NOVO: Controle de LGPD na sessão
+if 'lgpd_pendente' not in st.session_state: st.session_state['lgpd_pendente'] = False
 
 if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificacao_2fa'] = False
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
@@ -179,10 +181,9 @@ def formatar_telefone(tel):
     if 10 <= len(apenas_numeros) <= 11: apenas_numeros = "55" + apenas_numeros
     return apenas_numeros
 
-# --- GERENCIAMENTO DE SESSÃO COM EXPIRAÇÃO ---
+# --- GERENCIAMENTO DE SESSÃO ---
 def criar_sessao_persistente(usuario_id):
     token = str(uuid.uuid4())
-    # Define expiração para 24 horas a partir de agora
     expira_em = datetime.now() + timedelta(hours=24)
     with conn.session as s:
         s.execute(text("UPDATE usuarios SET token_sessao = :t, token_expira_em = :exp WHERE id = :id"), 
@@ -195,21 +196,23 @@ def verificar_sessao_automatica():
     token_url = st.query_params.get("sessao")
     if token_url:
         try:
-            # Verifica se token existe E se NÃO expirou
             df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t AND token_expira_em > NOW()", {"t": token_url})
             if not df.empty:
                 row = df.iloc[0]
+                # Verifica se já tem consentimento LGPD
+                tem_lgpd = bool(row.get('consentimento_lgpd', False))
+                
                 st.session_state.update({
                     'logado': True,
                     'usuario_cod': row['usuario'],
                     'usuario_nome': row['nome'],
                     'tipo_usuario': str(row['tipo']).lower().strip(),
                     'saldo_atual': float(row['saldo']),
-                    'valor_ponto_usuario': float(row.get('valor_ponto', 0.50) or 0.50)
+                    'valor_ponto_usuario': float(row.get('valor_ponto', 0.50) or 0.50),
+                    'lgpd_pendente': not tem_lgpd # Se não tem, fica pendente
                 })
                 st.rerun()
             else:
-                # Se o token existe na URL mas não retornou, pode ter expirado. Limpa a URL.
                 if st.query_params.get("sessao"):
                     st.query_params.clear()
         except Exception:
@@ -268,12 +271,14 @@ def registrar_log(acao, detalhes):
 # --- LÓGICA DE NEGÓCIO ---
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
-    if df.empty: return False, None, None, 0, None, None, 0.50
+    if df.empty: return False, None, None, 0, None, None, 0.50, False
     linha = df.iloc[0]
     if verificar_senha_hash(pass_input.strip(), linha['senha']):
         v_ponto = float(linha.get('valor_ponto', 0.50) or 0.50)
-        return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone']), int(linha['id']), v_ponto
-    return False, None, None, 0, None, None, 0.50
+        # Verifica se já aceitou LGPD
+        tem_lgpd = bool(linha.get('consentimento_lgpd', False))
+        return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone']), int(linha['id']), v_ponto, tem_lgpd
+    return False, None, None, 0, None, None, 0.50, False
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate):
     try:
@@ -307,20 +312,19 @@ def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
         return True, "Ticket comprado com sucesso!"
     except Exception as e: return False, f"Erro: {str(e)}"
 
-# --- NOVO CADASTRO COM LGPD ---
+# --- CADASTRO (LGPD Opcional no cadastro, obrigatório no login) ---
 def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_ponto=0.50, consentimento_lgpd=False):
     try:
         df = run_query("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario})
         if not df.empty: return False, "Usuário já existe!"
         
-        # Define a data do consentimento apenas se o checkbox foi marcado
         data_cons = datetime.now() if consentimento_lgpd else None
 
         run_transaction(
             "INSERT INTO usuarios (usuario, senha, nome, saldo, pontos_historico, tipo, telefone, valor_ponto, consentimento_lgpd, data_consentimento) VALUES (:u, :s, :n, :bal, :bal, :t, :tel, :vp, :lgpd, :dt_lgpd)",
             {"u": usuario, "s": gerar_hash(senha), "n": nome, "bal": saldo, "t": tipo, "tel": formatar_telefone(telefone), "vp": valor_ponto, "lgpd": consentimento_lgpd, "dt_lgpd": data_cons}
         )
-        registrar_log("Novo Cadastro", f"Criou usuário: {usuario} (LGPD: {consentimento_lgpd})")
+        registrar_log("Novo Cadastro", f"Criou usuário: {usuario} (LGPD Inicial: {consentimento_lgpd})")
         return True, "Cadastrado com sucesso!"
     except Exception as e: return False, f"Erro: {str(e)}"
 
@@ -342,6 +346,48 @@ def distribuir_pontos_multiplos(lista_usuarios, quantidade):
     except Exception as e: return False
 
 # --- MODAIS E DIÁLOGOS ---
+@st.dialog("🔒 Termos de Uso e Privacidade (LGPD)")
+def modal_consentimento_lgpd():
+    st.markdown("""
+    ### Política de Privacidade e Proteção de Dados
+    
+    Para continuar utilizando a **Lojinha Culli's**, precisamos do seu consentimento para o tratamento dos seus dados pessoais, em conformidade com a Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
+
+    **1. Dados Coletados:**
+    * Nome completo, Login e Telefone (WhatsApp).
+    * Histórico de transações (pontos ganhos e resgates).
+    * Logs de acesso e endereço IP (para segurança).
+
+    **2. Finalidade do Tratamento:**
+    * Gestão do programa de recompensas e entrega de prêmios.
+    * Comunicação sobre status de pedidos via WhatsApp/SMS.
+    * Auditoria e prevenção de fraudes.
+
+    **3. Seus Direitos:**
+    * Você pode solicitar o acesso, correção ou exclusão dos seus dados a qualquer momento entrando em contato com a administração.
+    * A exclusão dos dados implicará no cancelamento da conta e perda dos pontos acumulados.
+
+    **4. Segurança:**
+    * Seus dados são armazenados de forma segura e não são compartilhados com terceiros para fins publicitários.
+
+    ---
+    Ao clicar em **"Li e Aceito"**, você declara estar ciente e de acordo com os termos acima.
+    """)
+    
+    if st.button("✅ LI E ACEITO OS TERMOS", type="primary", use_container_width=True):
+        try:
+            u_cod = st.session_state.get('usuario_cod')
+            if u_cod:
+                with conn.session as s:
+                    s.execute(text("UPDATE usuarios SET consentimento_lgpd = TRUE, data_consentimento = NOW() WHERE usuario = :u"), {"u": u_cod})
+                    s.commit()
+                st.session_state['lgpd_pendente'] = False
+                st.success("Consentimento registrado com sucesso!")
+                time.sleep(1)
+                st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao registrar: {e}")
+
 @st.dialog("💾 Confirmação de Sistema")
 def modal_sucesso_salvamento(detalhes):
     st.success("As alterações foram gravadas no banco de dados!")
@@ -358,7 +404,6 @@ def abrir_modal_senha(usuario_cod):
             registrar_log("Senha Alterada", f"Usuário: {usuario_cod}")
             st.success("Sucesso!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
 
-# --- NOVO FLUXO: ESQUECI MINHA SENHA POR LINK ---
 @st.dialog("🔑 Recuperar Acesso")
 def enviar_link_recuperacao():
     st.write("Digite seu login. Enviaremos um link seguro via SMS para redefinir sua senha.")
@@ -373,24 +418,21 @@ def enviar_link_recuperacao():
         row = df.iloc[0]
         tel = str(row['telefone'])
         
-        # 1. Gerar Token e Data de Expiração (15 minutos)
         reset_token = str(uuid.uuid4())
         expiracao = datetime.now() + timedelta(minutes=15)
         
-        # 2. Salvar no Banco
         try:
             with conn.session as s:
                 s.execute(text("UPDATE usuarios SET reset_token = :rt, reset_token_expira = :exp WHERE id = :id"), 
                           {"rt": reset_token, "exp": expiracao, "id": row['id']})
                 s.commit()
             
-            # 3. Gerar Link (ATENÇÃO: Substitua pela URL real do seu app se mudar)
+            # ATENÇÃO: Verifique se este é o link correto do seu app
             base_url = "https://lojinha-culligan.streamlit.app" 
             link_completo = f"{base_url}/?rt={reset_token}"
             
             mensagem = f"Culli: Para redefinir sua senha, acesse o link (valido por 15 min): {link_completo}"
             
-            # 4. Enviar SMS
             ok, det, cod = enviar_sms(tel, mensagem)
             
             if ok:
@@ -402,11 +444,9 @@ def enviar_link_recuperacao():
         except Exception as e:
             st.error(f"Erro interno: {e}")
 
-# --- TELA DE REDEFINIÇÃO DE SENHA (TOKEN) ---
 def tela_nova_senha_token(token_url):
     st.markdown("""<div style="text-align: center; margin-bottom: 20px;"><h2 style="color: #003366;">🔐 Nova Senha</h2><p>Defina sua nova senha de acesso.</p></div>""", unsafe_allow_html=True)
     
-    # Validar Token
     try:
         df = run_query("SELECT * FROM usuarios WHERE reset_token = :rt AND reset_token_expira > NOW()", {"rt": token_url})
         if df.empty:
@@ -428,7 +468,6 @@ def tela_nova_senha_token(token_url):
             if st.form_submit_button("REDEFINIR SENHA", type="primary", use_container_width=True):
                 if nova1 == nova2 and len(nova1) >= 4:
                     senha_hash = gerar_hash(nova1)
-                    # Atualiza senha e limpa o token para não ser usado de novo
                     with conn.session as s:
                         s.execute(text("UPDATE usuarios SET senha = :s, reset_token = NULL, reset_token_expira = NULL WHERE id = :id"), 
                                   {"s": senha_hash, "id": usuario_id})
@@ -442,7 +481,6 @@ def tela_nova_senha_token(token_url):
                     
     except Exception as e:
         st.error(f"Erro ao validar token: {e}")
-
 
 @st.dialog("🎁 Confirmar Resgate")
 def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
@@ -562,7 +600,20 @@ def tela_login():
                 if st.form_submit_button("VALIDAR ACESSO", type="primary", use_container_width=True):
                     if codigo_digitado == st.session_state.codigo_2fa_esperado:
                         dados = st.session_state.dados_usuario_temp
-                        st.session_state.update({'logado': True, 'usuario_cod': dados['usuario'], 'usuario_nome': dados['nome'], 'tipo_usuario': dados['tipo'], 'saldo_atual': dados['saldo'], 'valor_ponto_usuario': dados.get('valor_ponto', 0.50), 'em_verificacao_2fa': False, 'dados_usuario_temp': {}})
+                        # Atualiza flag LGPD aqui também se vier do login
+                        tem_lgpd = st.session_state.get('temp_lgpd_status', False) 
+                        
+                        st.session_state.update({
+                            'logado': True, 
+                            'usuario_cod': dados['usuario'], 
+                            'usuario_nome': dados['nome'], 
+                            'tipo_usuario': dados['tipo'], 
+                            'saldo_atual': dados['saldo'], 
+                            'valor_ponto_usuario': dados.get('valor_ponto', 0.50), 
+                            'em_verificacao_2fa': False, 
+                            'dados_usuario_temp': {},
+                            'lgpd_pendente': not tem_lgpd # Passa o status
+                        })
                         criar_sessao_persistente(dados['id']); st.rerun()
                     else: st.error("Código incorreto. Tente novamente.")
             if st.button("⬅️ Voltar", type="secondary", use_container_width=True): st.session_state.em_verificacao_2fa = False; st.session_state.dados_usuario_temp = {}; st.rerun()
@@ -572,7 +623,7 @@ def tela_login():
                 u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
                 st.write("") 
                 if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
-                    ok, n, t, sld, tel_completo, uid, v_ponto = validar_login(u, s)
+                    ok, n, t, sld, tel_completo, uid, v_ponto, tem_lgpd = validar_login(u, s)
                     if ok:
                         codigo = str(random.randint(100000, 999999))
                         msg_2fa = f"Seu codigo de acesso Culli: {codigo}"
@@ -581,15 +632,15 @@ def tela_login():
                             st.session_state.em_verificacao_2fa = True
                             st.session_state.codigo_2fa_esperado = codigo
                             st.session_state.dados_usuario_temp = {'usuario': u, 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo, 'id': uid, 'valor_ponto': v_ponto}
+                            st.session_state['temp_lgpd_status'] = tem_lgpd # Guarda temporariamente para usar pós-2FA
                             st.rerun()
                         else: st.error(f"Erro no envio do SMS: {info}. Verifique se o telefone está correto no cadastro.")
                     else: st.toast("Usuário ou senha incorretos", icon="❌")
             st.write(""); c_esqueceu, c_primeiro = st.columns(2)
             with c_esqueceu:
-                # Alterado para usar o NOVO FLUXO DE TOKEN
                 if st.button("Esqueci a senha", type="secondary", use_container_width=True): enviar_link_recuperacao()
             with c_primeiro:
-                if st.button("Primeiro Acesso?", type="secondary", use_container_width=True): enviar_link_recuperacao() # Usa mesmo fluxo de recuperação pois é seguro
+                if st.button("Primeiro Acesso?", type="secondary", use_container_width=True): enviar_link_recuperacao()
 
 def tela_admin():
     st.subheader("🛠️ Painel Admin")
@@ -643,19 +694,15 @@ def tela_admin():
                 u = c_n1.text_input("Usuário"); s = c_n2.text_input("Senha"); n = c_n1.text_input("Nome"); t = c_n2.text_input("Telefone")
                 bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff", "supervisor"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
                 
-                # CHECKBOX DE CONSENTIMENTO LGPD
-                lgpd = st.checkbox("✅ Termo de Consentimento LGPD Assinado?", help="Marque se o usuário consentiu com o armazenamento de dados.")
+                # Opcional para Admin, pois o usuário aceita no login
+                lgpd = st.checkbox("Forçar aceite LGPD? (Deixe vazio para o usuário aceitar no login)", value=False)
                 
                 if st.form_submit_button("Cadastrar"):
-                    if not lgpd:
-                        st.error("É obrigatório confirmar o Consentimento LGPD.")
-                    else:
-                        ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp, lgpd)
-                        if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
-                        else: st.error(msg)
+                    ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp, lgpd)
+                    if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
+                    else: st.error(msg)
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=False):
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
-            # CORREÇÃO: Adicionado 'supervisor' na lista de exclusão
             df_users_list_dist = run_query("SELECT usuario FROM usuarios WHERE tipo NOT IN ('admin', 'staff', 'supervisor') ORDER BY usuario")
             lista_users = df_users_list_dist['usuario'].tolist() if not df_users_list_dist.empty else []
             target_users = c_d1.multiselect("Selecione os Usuários", ["Todos"] + lista_users)
@@ -798,159 +845,149 @@ def tela_principal():
     u_cod, u_nome, sld, tipo = st.session_state.usuario_cod, st.session_state.usuario_nome, st.session_state.saldo_atual, st.session_state.tipo_usuario
     valor_ponto_usuario = st.session_state.get('valor_ponto_usuario', 0.50); valor_padrao_ponto = 0.50 
 
-    if tipo == 'admin':
-        cols = st.columns([3, 1.5], gap="medium")
-        c_banner = cols[0]
-        with cols[1]:
-            c_btn_top = st.columns(2, gap="small")
-            c_btn_bot = st.columns(2, gap="small")
-            with c_btn_top[0]:
-                if st.button("Atualizar", type="secondary", use_container_width=True): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
-            with c_btn_top[1]:
-                if st.button("Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
-            with c_btn_bot[0]:
-                label = "Ver Loja" if st.session_state.admin_mode else "Voltar"
-                if st.button(label, type="secondary", use_container_width=True): st.session_state.admin_mode = not st.session_state.admin_mode; st.rerun()
-            with c_btn_bot[1]:
-                if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
+    # --- VERIFICAÇÃO DE LGPD ---
+    # Se estiver pendente, chama o modal e não renderiza o resto
+    if st.session_state.get('lgpd_pendente', False):
+        modal_consentimento_lgpd()
     
-    # NOVA LÓGICA DO SUPERVISOR (COM BOTÕES DE ALTERNÂNCIA)
-    elif tipo == 'supervisor':
-        cols = st.columns([3, 1.5], gap="medium")
-        c_banner = cols[0]
-        with cols[1]:
-            # Botões específicos do Supervisor
-            c_btn_top = st.columns(2, gap="small")
-            c_btn_bot = st.columns(1, gap="small") # Botão largo embaixo
-            
-            with c_btn_top[0]:
-                 if st.button("Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
-            with c_btn_top[1]:
-                if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
-            
-            with c_btn_bot[0]:
-                # Botão Toggle
-                label_sup = "Ver Loja" if st.session_state.supervisor_mode else "Painel Supervisor"
-                if st.button(label_sup, type="primary", use_container_width=True): 
-                    st.session_state.supervisor_mode = not st.session_state.supervisor_mode
-                    st.rerun()
-
+    # Se já aceitou, segue o fluxo normal
     else:
-        # Layout usuário comum: 2 colunas -> Banner (3) | Botões empilhados (1)
-        cols = st.columns([3, 1], gap="small")
-        c_banner = cols[0]
-        c_buttons = cols[1]
-        with c_buttons:
-            # Botões empilhados aqui, com 50px cada, somando 100px + gap = ~110px
-            if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
-            if st.button("❌ Sair", type="secondary", use_container_width=True): realizar_logout()
-    
-    with c_banner:
-        titulo_painel = "Painel Supervisor 👁️" if (tipo == 'supervisor' and st.session_state.supervisor_mode) else f"Olá, {u_nome}! 👋"
-        subtitulo = "Acompanhamento total de resgates." if (tipo == 'supervisor' and st.session_state.supervisor_mode) else "Agora você pode trocar seus pontos por prêmios incríveis!"
+        if tipo == 'admin':
+            cols = st.columns([3, 1.5], gap="medium")
+            c_banner = cols[0]
+            with cols[1]:
+                c_btn_top = st.columns(2, gap="small")
+                c_btn_bot = st.columns(2, gap="small")
+                with c_btn_top[0]:
+                    if st.button("Atualizar", type="secondary", use_container_width=True): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
+                with c_btn_top[1]:
+                    if st.button("Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+                with c_btn_bot[0]:
+                    label = "Ver Loja" if st.session_state.admin_mode else "Voltar"
+                    if st.button(label, type="secondary", use_container_width=True): st.session_state.admin_mode = not st.session_state.admin_mode; st.rerun()
+                with c_btn_bot[1]:
+                    if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
         
-        st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">{titulo_painel}</h2><p style="margin:0; opacity:0.9; color:white;">{subtitulo}</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # RENDERIZAÇÃO CONDICIONAL
-    if tipo == 'admin' and st.session_state.admin_mode: 
-        tela_admin()
-    elif tipo == 'supervisor' and st.session_state.supervisor_mode: 
-        tela_supervisor()
-    else:
-        # TELA COMUM (LOJA)
-        t1, t2, t3, t4 = st.tabs(["🎁 Catálogo", "🍀 Sorteio", "📜 Meus Resgates", "🏆 Ranking"])
-        with t1:
-            # === NOVA BARRA DE BUSCA ===
-            busca = st.text_input("🔍 Buscar Produtos", placeholder="Digite o nome do prêmio...")
-            
-            df_p = run_query("SELECT * FROM premios ORDER BY id")
-            if not df_p.empty:
-                # LÓGICA DE FILTRO
-                if busca:
-                    df_p = df_p[df_p['item'].str.contains(busca, case=False, na=False)]
-                
-                if df_p.empty:
-                    st.warning("Nenhum produto encontrado com este termo.")
-                else:
-                    cols = st.columns(4)
-                    for i, (index_db, row) in enumerate(df_p.iterrows()):
-                        with cols[i % 4]:
-                            with st.container(border=True):
-                                if row['imagem']: st.image(processar_link_imagem(row['imagem']))
-                                fator_conversao = valor_padrao_ponto / valor_ponto_usuario
-                                custo_final = int(row['custo'] * fator_conversao)
-                                st.markdown(f"**{row['item']}**")
-                                st.markdown(f"<div style='color:{'#0066cc' if sld >= custo_final else '#999'}; font-weight:bold;'>{custo_final} pts</div>", unsafe_allow_html=True)
-                                c_detalhe, c_resgate = st.columns([1, 1]) 
-                                with c_detalhe:
-                                    if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], custo_final, row.get('descricao', ''))
-                                with c_resgate:
-                                    if sld >= custo_final:
-                                        if st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], custo_final, u_cod)
-            else:
-                st.info("O catálogo está vazio.")
+        elif tipo == 'supervisor':
+            cols = st.columns([3, 1.5], gap="medium")
+            c_banner = cols[0]
+            with cols[1]:
+                c_btn_top = st.columns(2, gap="small")
+                c_btn_bot = st.columns(1, gap="small")
+                with c_btn_top[0]:
+                     if st.button("Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+                with c_btn_top[1]:
+                    if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
+                with c_btn_bot[0]:
+                    label_sup = "Ver Loja" if st.session_state.supervisor_mode else "Painel Supervisor"
+                    if st.button(label_sup, type="primary", use_container_width=True): 
+                        st.session_state.supervisor_mode = not st.session_state.supervisor_mode
+                        st.rerun()
 
-        with t2:
-            rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
-            if not rifa_ativa.empty:
-                r = rifa_ativa.iloc[0]; img_premio = ""
-                df_p_img = run_query("SELECT imagem, descricao FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
-                if not df_p_img.empty: img_premio = df_p_img.iloc[0]['imagem']
-                st.markdown(f"""<div class="rifa-card"><div class="rifa-tag">🍀 SORTEIO ATIVO</div><h3 style="margin:0; color:#333;">{r['item_nome']}</h3><p style="font-size:14px; color:#666;">Participe do sorteio exclusivo deste prêmio incrível!</p></div>""", unsafe_allow_html=True)
-                c_img_rifa, c_info_rifa = st.columns([1, 2])
-                with c_img_rifa:
-                    if img_premio: st.image(processar_link_imagem(img_premio), use_container_width=True)
-                with c_info_rifa:
-                    st.markdown(f"#### Custo do Ticket: **{r['custo_ticket']} pts**")
-                    my_tickets_count = 0
-                    try:
-                        df_count = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid AND usuario = :u", {"rid": int(r['id']), "u": u_cod})
-                        if not df_count.empty: my_tickets_count = df_count.iloc[0]['qtd']
-                    except: pass
-                    if my_tickets_count > 0: st.success(f"🎟️ Você já tem: **{my_tickets_count} tickets**")
-                    else: st.info("Você ainda não tem tickets.")
-                    if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary", use_container_width=True): confirmar_compra_ticket(int(r['id']), r['item_nome'], r['custo_ticket'], u_cod)
-            else:
-                rifa_encerrada = run_query("SELECT * FROM rifas WHERE status = 'encerrada' ORDER BY id DESC LIMIT 1")
-                if not rifa_encerrada.empty:
-                    r_fim = rifa_encerrada.iloc[0]; img_premio_fim = ""
-                    df_p_img_fim = run_query("SELECT imagem FROM premios WHERE id = :pid", {"pid": int(r_fim['premio_id'])})
-                    if not df_p_img_fim.empty: img_premio_fim = df_p_img_fim.iloc[0]['imagem']
-                    nome_ganhador = r_fim['ganhador_usuario']
-                    df_ganhador = run_query("SELECT nome FROM usuarios WHERE usuario = :u", {"u": nome_ganhador})
-                    if not df_ganhador.empty: nome_ganhador = df_ganhador.iloc[0]['nome']
-                    st.markdown(f"""<div class="winner-card"><div class="winner-tag">🏆 HALL DA FAMA</div><h3 style="margin:0; color:#333;">Parabéns, {nome_ganhador}!</h3><p style="font-size:14px; color:#666;">Foi o ganhador do último sorteio: <b>{r_fim['item_nome']}</b></p></div>""", unsafe_allow_html=True)
-                    if img_premio_fim: st.image(processar_link_imagem(img_premio_fim), width=300)
-                else: st.info("Nenhum sorteio ativo no momento.")
-        with t3:
-            st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
-            # CORREÇÃO: Usamos LOWER() para garantir que encontre independentemente de maiúsculas/minúsculas
-            meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE LOWER(usuario) = LOWER(:u) ORDER BY data DESC", {"u": u_cod})
-            if not meus_pedidos.empty:
-                editor_pedidos = st.data_editor(meus_pedidos, use_container_width=True, hide_index=True, key="editor_meus_pedidos", column_config={"id": st.column_config.TextColumn("ID", disabled=True), "data": st.column_config.DatetimeColumn("Data", disabled=True, format="DD/MM/YYYY"), "item": st.column_config.TextColumn("Item", disabled=True), "valor": st.column_config.NumberColumn("Valor", disabled=True), "status": st.column_config.TextColumn("Status", disabled=True), "codigo_vale": st.column_config.TextColumn("Código/Vale", disabled=True), "recebido_user": st.column_config.CheckboxColumn("Já Recebeu?", help="Marque se você já recebeu seu prêmio")}, disabled=["id", "data", "item", "valor", "status", "codigo_vale"])
-                if st.button("💾 Confirmar Recebimento"):
-                    with conn.session as s:
-                        for i, row in editor_pedidos.iterrows():
-                            if row['recebido_user']: s.execute(text("UPDATE vendas SET recebido_user = TRUE WHERE id = :id"), {"id": row['id']})
-                            else: s.execute(text("UPDATE vendas SET recebido_user = FALSE WHERE id = :id"), {"id": row['id']})
-                        s.commit()
-                    st.toast("Status de recebimento atualizado!", icon="✅"); time.sleep(1); st.rerun()
-            else: st.write("Nenhum pedido encontrado.")
-        with t4:
-            st.markdown("### 🏆 Top Users (Histórico)")
-            st.caption("Este ranking considera todos os pontos já ganhos, independente se já foram gastos ou zerados.")
-            # CORREÇÃO: Adicionado 'supervisor' na lista de exclusão do Ranking
-            df_rank = run_query("SELECT usuario, pontos_historico FROM usuarios WHERE tipo NOT IN ('admin', 'staff', 'supervisor') ORDER BY pontos_historico DESC LIMIT 10")
-            if not df_rank.empty:
-                df_rank['pontos_historico'] = df_rank['pontos_historico'].fillna(0).astype(int)
-                df_rank = df_rank.rename(columns={"usuario": "Usuário", "pontos_historico": "Pontos Acumulados"})
-                st.dataframe(df_rank, use_container_width=True, hide_index=True)
-            else: st.info("Ranking ainda vazio.")
+        else:
+            cols = st.columns([3, 1], gap="small")
+            c_banner = cols[0]
+            c_buttons = cols[1]
+            with c_buttons:
+                if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+                if st.button("❌ Sair", type="secondary", use_container_width=True): realizar_logout()
+        
+        with c_banner:
+            titulo_painel = "Painel Supervisor 👁️" if (tipo == 'supervisor' and st.session_state.supervisor_mode) else f"Olá, {u_nome}! 👋"
+            subtitulo = "Acompanhamento total de resgates." if (tipo == 'supervisor' and st.session_state.supervisor_mode) else "Agora você pode trocar seus pontos por prêmios incríveis!"
+            st.markdown(f'''<div class="header-style"><div style="display:flex; justify-content:space-between; align-items:center;"><div><h2 style="margin:0; color:white;">{titulo_painel}</h2><p style="margin:0; opacity:0.9; color:white;">{subtitulo}</p></div><div style="text-align:right; color:white;"><span class="saldo-label">SEU SALDO</span><br><span class="saldo-valor">{sld:,.0f}</span> pts</div></div></div>''', unsafe_allow_html=True)
+        
+        st.divider()
+        
+        if tipo == 'admin' and st.session_state.admin_mode: 
+            tela_admin()
+        elif tipo == 'supervisor' and st.session_state.supervisor_mode: 
+            tela_supervisor()
+        else:
+            t1, t2, t3, t4 = st.tabs(["🎁 Catálogo", "🍀 Sorteio", "📜 Meus Resgates", "🏆 Ranking"])
+            with t1:
+                busca = st.text_input("🔍 Buscar Produtos", placeholder="Digite o nome do prêmio...")
+                df_p = run_query("SELECT * FROM premios ORDER BY id")
+                if not df_p.empty:
+                    if busca:
+                        df_p = df_p[df_p['item'].str.contains(busca, case=False, na=False)]
+                    if df_p.empty:
+                        st.warning("Nenhum produto encontrado com este termo.")
+                    else:
+                        cols = st.columns(4)
+                        for i, (index_db, row) in enumerate(df_p.iterrows()):
+                            with cols[i % 4]:
+                                with st.container(border=True):
+                                    if row['imagem']: st.image(processar_link_imagem(row['imagem']))
+                                    fator_conversao = valor_padrao_ponto / valor_ponto_usuario
+                                    custo_final = int(row['custo'] * fator_conversao)
+                                    st.markdown(f"**{row['item']}**")
+                                    st.markdown(f"<div style='color:{'#0066cc' if sld >= custo_final else '#999'}; font-weight:bold;'>{custo_final} pts</div>", unsafe_allow_html=True)
+                                    c_detalhe, c_resgate = st.columns([1, 1]) 
+                                    with c_detalhe:
+                                        if st.button("Detalhes", key=f"det_{row['id']}", help="Ver Detalhes", type="secondary", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], custo_final, row.get('descricao', ''))
+                                    with c_resgate:
+                                        if sld >= custo_final:
+                                            if st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], custo_final, u_cod)
+                else:
+                    st.info("O catálogo está vazio.")
+
+            with t2:
+                rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
+                if not rifa_ativa.empty:
+                    r = rifa_ativa.iloc[0]; img_premio = ""
+                    df_p_img = run_query("SELECT imagem, descricao FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
+                    if not df_p_img.empty: img_premio = df_p_img.iloc[0]['imagem']
+                    st.markdown(f"""<div class="rifa-card"><div class="rifa-tag">🍀 SORTEIO ATIVO</div><h3 style="margin:0; color:#333;">{r['item_nome']}</h3><p style="font-size:14px; color:#666;">Participe do sorteio exclusivo deste prêmio incrível!</p></div>""", unsafe_allow_html=True)
+                    c_img_rifa, c_info_rifa = st.columns([1, 2])
+                    with c_img_rifa:
+                        if img_premio: st.image(processar_link_imagem(img_premio), use_container_width=True)
+                    with c_info_rifa:
+                        st.markdown(f"#### Custo do Ticket: **{r['custo_ticket']} pts**")
+                        my_tickets_count = 0
+                        try:
+                            df_count = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid AND usuario = :u", {"rid": int(r['id']), "u": u_cod})
+                            if not df_count.empty: my_tickets_count = df_count.iloc[0]['qtd']
+                        except: pass
+                        if my_tickets_count > 0: st.success(f"🎟️ Você já tem: **{my_tickets_count} tickets**")
+                        else: st.info("Você ainda não tem tickets.")
+                        if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary", use_container_width=True): confirmar_compra_ticket(int(r['id']), r['item_nome'], r['custo_ticket'], u_cod)
+                else:
+                    rifa_encerrada = run_query("SELECT * FROM rifas WHERE status = 'encerrada' ORDER BY id DESC LIMIT 1")
+                    if not rifa_encerrada.empty:
+                        r_fim = rifa_encerrada.iloc[0]; img_premio_fim = ""
+                        df_p_img_fim = run_query("SELECT imagem FROM premios WHERE id = :pid", {"pid": int(r_fim['premio_id'])})
+                        if not df_p_img_fim.empty: img_premio_fim = df_p_img_fim.iloc[0]['imagem']
+                        nome_ganhador = r_fim['ganhador_usuario']
+                        df_ganhador = run_query("SELECT nome FROM usuarios WHERE usuario = :u", {"u": nome_ganhador})
+                        if not df_ganhador.empty: nome_ganhador = df_ganhador.iloc[0]['nome']
+                        st.markdown(f"""<div class="winner-card"><div class="winner-tag">🏆 HALL DA FAMA</div><h3 style="margin:0; color:#333;">Parabéns, {nome_ganhador}!</h3><p style="font-size:14px; color:#666;">Foi o ganhador do último sorteio: <b>{r_fim['item_nome']}</b></p></div>""", unsafe_allow_html=True)
+                        if img_premio_fim: st.image(processar_link_imagem(img_premio_fim), width=300)
+                    else: st.info("Nenhum sorteio ativo no momento.")
+            with t3:
+                st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
+                meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE LOWER(usuario) = LOWER(:u) ORDER BY data DESC", {"u": u_cod})
+                if not meus_pedidos.empty:
+                    editor_pedidos = st.data_editor(meus_pedidos, use_container_width=True, hide_index=True, key="editor_meus_pedidos", column_config={"id": st.column_config.TextColumn("ID", disabled=True), "data": st.column_config.DatetimeColumn("Data", disabled=True, format="DD/MM/YYYY"), "item": st.column_config.TextColumn("Item", disabled=True), "valor": st.column_config.NumberColumn("Valor", disabled=True), "status": st.column_config.TextColumn("Status", disabled=True), "codigo_vale": st.column_config.TextColumn("Código/Vale", disabled=True), "recebido_user": st.column_config.CheckboxColumn("Já Recebeu?", help="Marque se você já recebeu seu prêmio")}, disabled=["id", "data", "item", "valor", "status", "codigo_vale"])
+                    if st.button("💾 Confirmar Recebimento"):
+                        with conn.session as s:
+                            for i, row in editor_pedidos.iterrows():
+                                if row['recebido_user']: s.execute(text("UPDATE vendas SET recebido_user = TRUE WHERE id = :id"), {"id": row['id']})
+                                else: s.execute(text("UPDATE vendas SET recebido_user = FALSE WHERE id = :id"), {"id": row['id']})
+                            s.commit()
+                        st.toast("Status de recebimento atualizado!", icon="✅"); time.sleep(1); st.rerun()
+                else: st.write("Nenhum pedido encontrado.")
+            with t4:
+                st.markdown("### 🏆 Top Users (Histórico)")
+                st.caption("Este ranking considera todos os pontos já ganhos, independente se já foram gastos ou zerados.")
+                df_rank = run_query("SELECT usuario, pontos_historico FROM usuarios WHERE tipo NOT IN ('admin', 'staff', 'supervisor') ORDER BY pontos_historico DESC LIMIT 10")
+                if not df_rank.empty:
+                    df_rank['pontos_historico'] = df_rank['pontos_historico'].fillna(0).astype(int)
+                    df_rank = df_rank.rename(columns={"usuario": "Usuário", "pontos_historico": "Pontos Acumulados"})
+                    st.dataframe(df_rank, use_container_width=True, hide_index=True)
+                else: st.info("Ranking ainda vazio.")
 
 if __name__ == "__main__":
-    # VERIFICA SE TEM TOKEN DE RESET NA URL ANTES DE TUDO
     qp = st.query_params
     if "rt" in qp:
         tela_nova_senha_token(qp["rt"])
