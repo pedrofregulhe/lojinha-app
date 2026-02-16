@@ -368,7 +368,7 @@ def modal_consentimento_lgpd():
     * A exclusão dos dados implicará no cancelamento da conta e perda dos pontos acumulados.
 
     **4. Segurança:**
-    * Seus dados são armazenados de forma segura e não são compartilhados com terceiros para fins publicitários.
+    * Os dados podem ser compartilhados com operadores de tecnologia necessários para execução do serviço (ex: envio de SMS/WhatsApp), respeitando a LGPD e não são compartilhados com terceiros para fins publicitários.
 
     ---
     Ao clicar em **"Li e Aceito"**, você declara estar ciente e de acordo com os termos acima.
