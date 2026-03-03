@@ -18,19 +18,25 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 conn = st.connection("postgresql", type="sql")
 
 # --- ROBÔ DE ATUALIZAÇÃO DO BANCO (MIGRAÇÕES) ---
-with conn.session as s:
-    try:
-        # Colunas originais
-        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS valor_ponto FLOAT DEFAULT 0.50;"))
-        # Novas colunas de Segurança e LGPD
-        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS consentimento_lgpd BOOLEAN DEFAULT FALSE;"))
-        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS data_consentimento TIMESTAMP;"))
-        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_expira_em TIMESTAMP;"))
-        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token TEXT;"))
-        s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token_expira TIMESTAMP;"))
-        s.commit()
-    except Exception:
-        pass 
+# O st.cache_resource garante que isso rode APENAS UMA VEZ quando o app liga,
+# salvando muitas CU-hrs do Neon que seriam gastas a cada clique.
+@st.cache_resource
+def iniciar_banco_dados():
+    with conn.session as s:
+        try:
+            # Colunas originais
+            s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS valor_ponto FLOAT DEFAULT 0.50;"))
+            # Novas colunas de Segurança e LGPD
+            s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS consentimento_lgpd BOOLEAN DEFAULT FALSE;"))
+            s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS data_consentimento TIMESTAMP;"))
+            s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_expira_em TIMESTAMP;"))
+            s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token TEXT;"))
+            s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token_expira TIMESTAMP;"))
+            s.commit()
+        except Exception:
+            pass 
+
+iniciar_banco_dados()
 
 # --- INICIALIZAÇÃO DA SESSÃO ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
@@ -196,7 +202,8 @@ def verificar_sessao_automatica():
     token_url = st.query_params.get("sessao")
     if token_url:
         try:
-            df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t AND token_expira_em > NOW()", {"t": token_url})
+            # Login sempre precisa ser validado sem cache (ttl=0)
+            df = run_query("SELECT * FROM usuarios WHERE token_sessao = :t AND token_expira_em > NOW()", {"t": token_url}, ttl=0)
             if not df.empty:
                 row = df.iloc[0]
                 # Verifica se já tem consentimento LGPD
@@ -258,7 +265,9 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envi
     except Exception as e: return False, f"Erro Conexão: {str(e)}", "EXCEPTION"
 
 # --- BANCO DE DADOS ---
-def run_query(query_str, params=None): return conn.query(query_str, params=params, ttl=0)
+# Otimização principal de Cache (ttl): Salva 5 minutos na memória (poupa MUITA CU-hr)
+def run_query(query_str, params=None, ttl="5m"): return conn.query(query_str, params=params, ttl=ttl)
+
 def run_transaction(query_str, params=None):
     with conn.session as s: s.execute(text(query_str), params if params else {}); s.commit()
 
@@ -270,7 +279,8 @@ def registrar_log(acao, detalhes):
 
 # --- LÓGICA DE NEGÓCIO ---
 def validar_login(user_input, pass_input):
-    df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
+    # Autenticação sempre tempo real (ttl=0)
+    df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()}, ttl=0)
     if df.empty: return False, None, None, 0, None, None, 0.50, False
     linha = df.iloc[0]
     if verificar_senha_hash(pass_input.strip(), linha['senha']):
@@ -282,7 +292,8 @@ def validar_login(user_input, pass_input):
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate):
     try:
-        user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod})
+        # Puxa saldo em tempo real (ttl=0)
+        user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod}, ttl=0)
         if user_df.empty: return False
         if float(user_df.iloc[0]['saldo']) < custo: st.error("Saldo insuficiente."); return False
         with conn.session as s:
@@ -292,12 +303,14 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
             s.commit()
         registrar_log("Resgate", f"Usuário: {user_df.iloc[0]['nome']} | Item: {item_nome}")
         st.session_state['saldo_atual'] -= custo
+        st.cache_data.clear() # Atualiza o cache para o admin ver a nova venda na hora
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
 
 def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
     try:
-        user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod})
+        # Puxa saldo em tempo real (ttl=0)
+        user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod}, ttl=0)
         if user_df.empty: return False, "Usuário não encontrado"
         custo_real = float(custo)
         if float(user_df.iloc[0]['saldo']) < custo_real: return False, "Saldo insuficiente"
@@ -309,13 +322,14 @@ def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
             s.commit()
         st.session_state['saldo_atual'] -= custo_real
         registrar_log("Rifa", f"Comprou ticket rifa {rifa_id}")
+        st.cache_data.clear() # Limpa o cache para o usuário ver os tickets mudarem na hora
         return True, "Ticket comprado com sucesso!"
     except Exception as e: return False, f"Erro: {str(e)}"
 
 # --- CADASTRO (LGPD Opcional no cadastro, obrigatório no login) ---
 def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_ponto=0.50, consentimento_lgpd=False):
     try:
-        df = run_query("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario})
+        df = run_query("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario}, ttl=0)
         if not df.empty: return False, "Usuário já existe!"
         
         data_cons = datetime.now() if consentimento_lgpd else None
@@ -382,6 +396,7 @@ def modal_consentimento_lgpd():
                     s.execute(text("UPDATE usuarios SET consentimento_lgpd = TRUE, data_consentimento = NOW() WHERE usuario = :u"), {"u": u_cod})
                     s.commit()
                 st.session_state['lgpd_pendente'] = False
+                st.cache_data.clear()
                 st.success("Consentimento registrado com sucesso!")
                 time.sleep(1)
                 st.rerun()
@@ -410,7 +425,7 @@ def enviar_link_recuperacao():
     user_input = st.text_input("Login (Usuário)")
     
     if st.button("Enviar Link de Redefinição", type="primary"):
-        df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()})
+        df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()}, ttl=0)
         if df.empty:
             st.error("Usuário não encontrado.")
             return
@@ -423,12 +438,10 @@ def enviar_link_recuperacao():
         
         try:
             with conn.session as s:
-                # CORREÇÃO: row['id'] convertido para int()
                 s.execute(text("UPDATE usuarios SET reset_token = :rt, reset_token_expira = :exp WHERE id = :id"), 
                           {"rt": reset_token, "exp": expiracao, "id": int(row['id'])})
                 s.commit()
             
-            # ATENÇÃO: Verifique se este é o link correto do seu app
             base_url = "https://lojinha-culligan.streamlit.app" 
             link_completo = f"{base_url}/?rt={reset_token}"
             
@@ -449,7 +462,7 @@ def tela_nova_senha_token(token_url):
     st.markdown("""<div style="text-align: center; margin-bottom: 20px;"><h2 style="color: #003366;">🔐 Nova Senha</h2><p>Defina sua nova senha de acesso.</p></div>""", unsafe_allow_html=True)
     
     try:
-        df = run_query("SELECT * FROM usuarios WHERE reset_token = :rt AND reset_token_expira > NOW()", {"rt": token_url})
+        df = run_query("SELECT * FROM usuarios WHERE reset_token = :rt AND reset_token_expira > NOW()", {"rt": token_url}, ttl=0)
         if df.empty:
             st.error("🚫 Este link é inválido ou já expirou.")
             if st.button("Voltar ao Início"):
@@ -457,7 +470,6 @@ def tela_nova_senha_token(token_url):
                 st.rerun()
             return
 
-        # CORREÇÃO: Converter ID para int()
         usuario_id = int(df.iloc[0]['id'])
         nome_user = df.iloc[0]['nome']
         
@@ -777,12 +789,12 @@ def tela_admin():
         st.markdown("### 🎟️ Gestão de Sorteios/Rifas"); rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
         if not rifa_ativa.empty:
             r = rifa_ativa.iloc[0]; st.success(f"🔥 Sorteio Ativo: **{r['item_nome']}** (Custo: {r['custo_ticket']} pts)")
-            qtd_tickets = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])})
+            qtd_tickets = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])}, ttl=0) # Sem cache para qtd de tickets atualizada
             total = qtd_tickets.iloc[0]['qtd']; st.metric("Tickets Vendidos", total); st.divider()
             if st.button("🎲 SORTEAR VENCEDOR", type="primary"):
                 if total == 0: st.error("Ninguém comprou ticket ainda!")
                 else:
-                    tickets = run_query("SELECT usuario FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])})
+                    tickets = run_query("SELECT usuario FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])}, ttl=0)
                     vencedor = random.choice(tickets['usuario'].tolist())
                     user_data = run_query("SELECT * FROM usuarios WHERE usuario = :u", {"u": vencedor})
                     nome_real = user_data.iloc[0]['nome']; telefone = user_data.iloc[0]['telefone']
@@ -793,6 +805,7 @@ def tela_admin():
                         s.commit()
                     img_premio = ""; df_p_img = run_query("SELECT imagem FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
                     if not df_p_img.empty: img_premio = df_p_img.iloc[0]['imagem']
+                    st.cache_data.clear()
                     mostrar_vencedor_dialog(nome_real, vencedor, r['item_nome'], img_premio)
                     registrar_log("Sorteio", f"Vencedor: {vencedor} - Item: {r['item_nome']}"); time.sleep(5); st.rerun()
             if st.button("Cancelar Sorteio (Sem Vencedor)"):
@@ -800,7 +813,9 @@ def tela_admin():
                     s.execute(text("DELETE FROM rifa_tickets WHERE rifa_id = :rid"), {"rid": int(r['id'])})
                     s.execute(text("UPDATE rifas SET status = 'cancelada' WHERE id = :id"), {"id": int(r['id'])})
                     s.commit()
-                st.warning("Cancelado e tickets limpos."); st.rerun()
+                st.warning("Cancelado e tickets limpos.")
+                st.cache_data.clear()
+                st.rerun()
         else:
             st.info("Nenhum sorteio ativo no momento. Configure um abaixo:")
             df_premios = run_query("SELECT id, item FROM premios")
@@ -810,6 +825,7 @@ def tela_admin():
             if st.button("🚀 INICIAR SORTEIO", type="primary"):
                 premio_id = opcoes[escolha]; nome_premio = escolha.split(" - ", 1)[1]
                 run_transaction("INSERT INTO rifas (premio_id, item_nome, custo_ticket, status) VALUES (:pid, :nome, :custo, 'ativa')", {"pid": premio_id, "nome": nome_premio, "custo": custo_rifa})
+                st.cache_data.clear()
                 st.success("Sorteio Criado!"); st.rerun()
 
 def tela_supervisor():
@@ -848,7 +864,6 @@ def tela_principal():
     valor_ponto_usuario = st.session_state.get('valor_ponto_usuario', 0.50); valor_padrao_ponto = 0.50 
 
     # --- VERIFICAÇÃO DE LGPD ---
-    # Se estiver pendente, chama o modal e não renderiza o resto
     if st.session_state.get('lgpd_pendente', False):
         modal_consentimento_lgpd()
     
@@ -948,7 +963,7 @@ def tela_principal():
                         st.markdown(f"#### Custo do Ticket: **{r['custo_ticket']} pts**")
                         my_tickets_count = 0
                         try:
-                            df_count = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid AND usuario = :u", {"rid": int(r['id']), "u": u_cod})
+                            df_count = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid AND usuario = :u", {"rid": int(r['id']), "u": u_cod}, ttl=0)
                             if not df_count.empty: my_tickets_count = df_count.iloc[0]['qtd']
                         except: pass
                         if my_tickets_count > 0: st.success(f"🎟️ Você já tem: **{my_tickets_count} tickets**")
@@ -977,6 +992,7 @@ def tela_principal():
                                 if row['recebido_user']: s.execute(text("UPDATE vendas SET recebido_user = TRUE WHERE id = :id"), {"id": row['id']})
                                 else: s.execute(text("UPDATE vendas SET recebido_user = FALSE WHERE id = :id"), {"id": row['id']})
                             s.commit()
+                        st.cache_data.clear() # Limpa cache pro Admin ver isso
                         st.toast("Status de recebimento atualizado!", icon="✅"); time.sleep(1); st.rerun()
                 else: st.write("Nenhum pedido encontrado.")
             with t4:
