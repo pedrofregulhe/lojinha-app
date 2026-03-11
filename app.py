@@ -294,7 +294,12 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
     try:
         # Puxa saldo em tempo real (ttl=0)
         user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod}, ttl=0)
-        if user_df.empty: return False
+        
+        # CORREÇÃO 2: Feedback visual caso o usuário não seja localizado no banco (comum se tiver espaços)
+        if user_df.empty: 
+            st.error("Erro interno: Cadastro não localizado para o resgate.")
+            return False
+            
         if float(user_df.iloc[0]['saldo']) < custo: st.error("Saldo insuficiente."); return False
         with conn.session as s:
             s.execute(text("UPDATE usuarios SET saldo = saldo - :custo WHERE LOWER(usuario) = LOWER(:u)"), {"custo": custo, "u": usuario_cod})
@@ -328,6 +333,8 @@ def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
 
 # --- CADASTRO (LGPD Opcional no cadastro, obrigatório no login) ---
 def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_ponto=0.50, consentimento_lgpd=False):
+    # CORREÇÃO 3: Limpeza imediata no momento em que o admin digita para evitar cadastro com espaço no final
+    usuario = usuario.strip()
     try:
         df = run_query("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario}, ttl=0)
         if not df.empty: return False, "Usuário já existe!"
@@ -580,7 +587,7 @@ def processar_envios_dialog(df_selecionados, tipo_envio="vendas"):
             
             if usar_sms:
                 if len(formatar_telefone(tel)) >= 12:
-                    texto = f"Ola {nome}, seu resgate de {var1} foi liberado! Cod: {var2}." if tipo_envio == "vendas" else f"Lojinha Culli: Ola {nome}, sua pontuacao foi atualizada e seu saldo atual e de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
+                    texto = f"Olá {nome}, seu resgate de {var1} foi liberado! Cód: {var2}." if tipo_envio == "vendas" else f"Lojinha Culli: Olá {nome}, sua pontuação foi atualizada e seu saldo atual é de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
                     ok, det, cod = enviar_sms(tel, texto)
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
                 else: logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
@@ -645,7 +652,10 @@ def tela_login():
                         if enviou:
                             st.session_state.em_verificacao_2fa = True
                             st.session_state.codigo_2fa_esperado = codigo
-                            st.session_state.dados_usuario_temp = {'usuario': u, 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo, 'id': uid, 'valor_ponto': v_ponto}
+                            
+                            # CORREÇÃO 1: Adiciona o .strip() na hora de salvar o usuário temporário para garantir
+                            st.session_state.dados_usuario_temp = {'usuario': u.strip(), 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo, 'id': uid, 'valor_ponto': v_ponto}
+                            
                             st.session_state['temp_lgpd_status'] = tem_lgpd # Guarda temporariamente para usar pós-2FA
                             st.rerun()
                         else: st.error(f"Erro no envio do SMS: {info}. Verifique se o telefone está correto no cadastro.")
