@@ -18,8 +18,6 @@ st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
 conn = st.connection("postgresql", type="sql")
 
 # --- ROBÔ DE ATUALIZAÇÃO DO BANCO (MIGRAÇÕES) ---
-# O st.cache_resource garante que isso rode APENAS UMA VEZ quando o app liga,
-# salvando muitas CU-hrs do Neon que seriam gastas a cada clique.
 @st.cache_resource
 def iniciar_banco_dados():
     with conn.session as s:
@@ -265,7 +263,6 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envi
     except Exception as e: return False, f"Erro Conexão: {str(e)}", "EXCEPTION"
 
 # --- BANCO DE DADOS ---
-# Otimização principal de Cache (ttl): Salva 5 minutos na memória (poupa MUITA CU-hr)
 def run_query(query_str, params=None, ttl="5m"): return conn.query(query_str, params=params, ttl=ttl)
 
 def run_transaction(query_str, params=None):
@@ -279,23 +276,19 @@ def registrar_log(acao, detalhes):
 
 # --- LÓGICA DE NEGÓCIO ---
 def validar_login(user_input, pass_input):
-    # Autenticação sempre tempo real (ttl=0)
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()}, ttl=0)
     if df.empty: return False, None, None, 0, None, None, 0.50, False
     linha = df.iloc[0]
     if verificar_senha_hash(pass_input.strip(), linha['senha']):
         v_ponto = float(linha.get('valor_ponto', 0.50) or 0.50)
-        # Verifica se já aceitou LGPD
         tem_lgpd = bool(linha.get('consentimento_lgpd', False))
         return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone']), int(linha['id']), v_ponto, tem_lgpd
     return False, None, None, 0, None, None, 0.50, False
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate):
     try:
-        # Puxa saldo em tempo real (ttl=0)
         user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod}, ttl=0)
         
-        # CORREÇÃO 2: Feedback visual caso o usuário não seja localizado no banco (comum se tiver espaços)
         if user_df.empty: 
             st.error("Erro interno: Cadastro não localizado para o resgate.")
             return False
@@ -308,13 +301,12 @@ def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate)
             s.commit()
         registrar_log("Resgate", f"Usuário: {user_df.iloc[0]['nome']} | Item: {item_nome}")
         st.session_state['saldo_atual'] -= custo
-        st.cache_data.clear() # Atualiza o cache para o admin ver a nova venda na hora
+        st.cache_data.clear() 
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
 
 def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
     try:
-        # Puxa saldo em tempo real (ttl=0)
         user_df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod}, ttl=0)
         if user_df.empty: return False, "Usuário não encontrado"
         custo_real = float(custo)
@@ -327,13 +319,12 @@ def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
             s.commit()
         st.session_state['saldo_atual'] -= custo_real
         registrar_log("Rifa", f"Comprou ticket rifa {rifa_id}")
-        st.cache_data.clear() # Limpa o cache para o usuário ver os tickets mudarem na hora
+        st.cache_data.clear() 
         return True, "Ticket comprado com sucesso!"
     except Exception as e: return False, f"Erro: {str(e)}"
 
-# --- CADASTRO (LGPD Opcional no cadastro, obrigatório no login) ---
+# --- CADASTRO ---
 def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_ponto=0.50, consentimento_lgpd=False):
-    # CORREÇÃO 3: Limpeza imediata no momento em que o admin digita para evitar cadastro com espaço no final
     usuario = usuario.strip()
     try:
         df = run_query("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario}, ttl=0)
@@ -425,6 +416,64 @@ def abrir_modal_senha(usuario_cod):
             run_transaction("UPDATE usuarios SET senha = :s WHERE LOWER(usuario) = LOWER(:u)", {"s": gerar_hash(n), "u": usuario_cod})
             registrar_log("Senha Alterada", f"Usuário: {usuario_cod}")
             st.success("Sucesso!"); time.sleep(1); st.session_state['logado'] = False; st.rerun()
+
+@st.dialog("👤 Meu Perfil")
+def abrir_modal_perfil(usuario_cod):
+    # Busca os dados atuais do usuário para preencher os campos
+    df_user = run_query("SELECT nome, telefone FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario_cod}, ttl=0)
+    
+    if df_user.empty:
+        st.error("Erro ao carregar dados do usuário.")
+        return
+        
+    nome_atual = df_user.iloc[0]['nome']
+    tel_atual = str(df_user.iloc[0]['telefone'])
+    
+    with st.form("form_perfil"):
+        st.write("Atualize seus dados de contato abaixo:")
+        novo_nome = st.text_input("Nome Completo", value=nome_atual)
+        novo_telefone = st.text_input("Telefone / WhatsApp (DDD+Número)", value=tel_atual)
+        
+        st.divider()
+        st.write("🔐 **Alterar Senha (Opcional)**")
+        st.caption("Deixe em branco se não quiser alterar sua senha atual.")
+        n = st.text_input("Nova Senha", type="password")
+        c = st.text_input("Confirmar Nova Senha", type="password")
+        
+        if st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True):
+            tel_formatado = formatar_telefone(novo_telefone)
+            if len(tel_formatado) < 12:
+                st.error("Telefone inválido! Digite com o DDD.")
+                return
+            
+            # Prepara a query de atualização base (Nome e Telefone)
+            query = "UPDATE usuarios SET nome = :n, telefone = :t"
+            params = {"n": novo_nome, "t": tel_formatado, "u": usuario_cod}
+            
+            # Verifica se o usuário digitou algo na senha para atualizá-la também
+            if n or c:
+                if n != c:
+                    st.error("As senhas não coincidem!")
+                    return
+                if len(n) < 4:
+                    st.error("A nova senha deve ter pelo menos 4 caracteres.")
+                    return
+                query += ", senha = :s"
+                params["s"] = gerar_hash(n)
+                
+            query += " WHERE LOWER(usuario) = LOWER(:u)"
+            
+            try:
+                run_transaction(query, params)
+                registrar_log("Perfil Atualizado", f"Usuário: {usuario_cod} alterou seus dados de perfil.")
+                
+                # Atualiza o nome na sessão na mesma hora para refletir no cabeçalho
+                st.session_state['usuario_nome'] = novo_nome 
+                st.success("Perfil atualizado com sucesso!")
+                time.sleep(1.5)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao atualizar o perfil: {e}")
 
 @st.dialog("🔑 Recuperar Acesso")
 def enviar_link_recuperacao():
@@ -621,7 +670,6 @@ def tela_login():
                 if st.form_submit_button("VALIDAR ACESSO", type="primary", use_container_width=True):
                     if codigo_digitado == st.session_state.codigo_2fa_esperado:
                         dados = st.session_state.dados_usuario_temp
-                        # Atualiza flag LGPD aqui também se vier do login
                         tem_lgpd = st.session_state.get('temp_lgpd_status', False) 
                         
                         st.session_state.update({
@@ -633,7 +681,7 @@ def tela_login():
                             'valor_ponto_usuario': dados.get('valor_ponto', 0.50), 
                             'em_verificacao_2fa': False, 
                             'dados_usuario_temp': {},
-                            'lgpd_pendente': not tem_lgpd # Passa o status
+                            'lgpd_pendente': not tem_lgpd
                         })
                         criar_sessao_persistente(dados['id']); st.rerun()
                     else: st.error("Código incorreto. Tente novamente.")
@@ -653,10 +701,9 @@ def tela_login():
                             st.session_state.em_verificacao_2fa = True
                             st.session_state.codigo_2fa_esperado = codigo
                             
-                            # CORREÇÃO 1: Adiciona o .strip() na hora de salvar o usuário temporário para garantir
                             st.session_state.dados_usuario_temp = {'usuario': u.strip(), 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo, 'id': uid, 'valor_ponto': v_ponto}
                             
-                            st.session_state['temp_lgpd_status'] = tem_lgpd # Guarda temporariamente para usar pós-2FA
+                            st.session_state['temp_lgpd_status'] = tem_lgpd 
                             st.rerun()
                         else: st.error(f"Erro no envio do SMS: {info}. Verifique se o telefone está correto no cadastro.")
                     else: st.toast("Usuário ou senha incorretos", icon="❌")
@@ -680,7 +727,6 @@ def tela_admin():
             edit_v = st.data_editor(df_v, use_container_width=True, hide_index=True, key="ed_vendas", column_config={"Enviar": st.column_config.CheckboxColumn("Enviar?", default=False), "recebido_user": st.column_config.CheckboxColumn("Recebido pelo Usuário?", disabled=True)})
             
             st.markdown("<br>", unsafe_allow_html=True)
-            # BOTÕES CENTRALIZADOS
             c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
             with c2:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_vendas"):
@@ -718,7 +764,6 @@ def tela_admin():
                 u = c_n1.text_input("Usuário"); s = c_n2.text_input("Senha"); n = c_n1.text_input("Nome"); t = c_n2.text_input("Telefone")
                 bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff", "supervisor"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
                 
-                # Opcional para Admin, pois o usuário aceita no login
                 lgpd = st.checkbox("Forçar aceite LGPD? (Deixe vazio para o usuário aceitar no login)", value=False)
                 
                 if st.form_submit_button("Cadastrar"):
@@ -741,7 +786,6 @@ def tela_admin():
             edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff", "supervisor"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f"), "consentimento_lgpd": st.column_config.CheckboxColumn("LGPD?", disabled=True)})
             
             st.markdown("<br>", unsafe_allow_html=True)
-            # BOTÕES CENTRALIZADOS
             c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
             with c2:
                 if st.button("💾 Salvar Tabela", use_container_width=True, key="btn_save_users"):
@@ -799,7 +843,7 @@ def tela_admin():
         st.markdown("### 🎟️ Gestão de Sorteios/Rifas"); rifa_ativa = run_query("SELECT * FROM rifas WHERE status = 'ativa'")
         if not rifa_ativa.empty:
             r = rifa_ativa.iloc[0]; st.success(f"🔥 Sorteio Ativo: **{r['item_nome']}** (Custo: {r['custo_ticket']} pts)")
-            qtd_tickets = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])}, ttl=0) # Sem cache para qtd de tickets atualizada
+            qtd_tickets = run_query("SELECT COUNT(*) as qtd FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])}, ttl=0)
             total = qtd_tickets.iloc[0]['qtd']; st.metric("Tickets Vendidos", total); st.divider()
             if st.button("🎲 SORTEAR VENCEDOR", type="primary"):
                 if total == 0: st.error("Ninguém comprou ticket ainda!")
@@ -843,7 +887,6 @@ def tela_supervisor():
     df_v = run_query("SELECT id, data, usuario, nome_real, item, valor, status, telefone, email, codigo_vale, recebido_user FROM vendas ORDER BY id DESC")
     
     if not df_v.empty:
-        # Filtros
         c_filtro1, c_filtro2 = st.columns(2)
         status_unicos = df_v['status'].unique().tolist()
         filtro_status = c_filtro1.multiselect("Filtrar por Status", status_unicos)
@@ -888,7 +931,7 @@ def tela_principal():
                 with c_btn_top[0]:
                     if st.button("Atualizar", type="secondary", use_container_width=True): st.cache_data.clear(); st.toast("Sincronizado!", icon="✅"); time.sleep(1); st.rerun()
                 with c_btn_top[1]:
-                    if st.button("Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+                    if st.button("Perfil", type="secondary", use_container_width=True): abrir_modal_perfil(u_cod)
                 with c_btn_bot[0]:
                     label = "Ver Loja" if st.session_state.admin_mode else "Voltar"
                     if st.button(label, type="secondary", use_container_width=True): st.session_state.admin_mode = not st.session_state.admin_mode; st.rerun()
@@ -902,7 +945,7 @@ def tela_principal():
                 c_btn_top = st.columns(2, gap="small")
                 c_btn_bot = st.columns(1, gap="small")
                 with c_btn_top[0]:
-                     if st.button("Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+                     if st.button("Perfil", type="secondary", use_container_width=True): abrir_modal_perfil(u_cod)
                 with c_btn_top[1]:
                     if st.button("Sair", type="secondary", use_container_width=True): realizar_logout()
                 with c_btn_bot[0]:
@@ -916,7 +959,7 @@ def tela_principal():
             c_banner = cols[0]
             c_buttons = cols[1]
             with c_buttons:
-                if st.button("🔐 Alterar Senha", type="secondary", use_container_width=True): abrir_modal_senha(u_cod)
+                if st.button("👤 Meu Perfil", type="secondary", use_container_width=True): abrir_modal_perfil(u_cod)
                 if st.button("❌ Sair", type="secondary", use_container_width=True): realizar_logout()
         
         with c_banner:
@@ -1002,7 +1045,7 @@ def tela_principal():
                                 if row['recebido_user']: s.execute(text("UPDATE vendas SET recebido_user = TRUE WHERE id = :id"), {"id": row['id']})
                                 else: s.execute(text("UPDATE vendas SET recebido_user = FALSE WHERE id = :id"), {"id": row['id']})
                             s.commit()
-                        st.cache_data.clear() # Limpa cache pro Admin ver isso
+                        st.cache_data.clear() 
                         st.toast("Status de recebimento atualizado!", icon="✅"); time.sleep(1); st.rerun()
                 else: st.write("Nenhum pedido encontrado.")
             with t4:
