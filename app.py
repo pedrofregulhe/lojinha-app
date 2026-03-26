@@ -850,18 +850,33 @@ def tela_admin():
                 else:
                     tickets = run_query("SELECT usuario FROM rifa_tickets WHERE rifa_id = :rid", {"rid": int(r['id'])}, ttl=0)
                     vencedor = random.choice(tickets['usuario'].tolist())
-                    user_data = run_query("SELECT * FROM usuarios WHERE usuario = :u", {"u": vencedor})
-                    nome_real = user_data.iloc[0]['nome']; telefone = user_data.iloc[0]['telefone']
-                    with conn.session as s:
-                        s.execute(text("DELETE FROM rifa_tickets WHERE rifa_id = :rid"), {"rid": int(r['id'])})
-                        s.execute(text("INSERT INTO vendas (data, usuario, item, valor, status, email, nome_real, telefone) VALUES (NOW(), :u, :item, 0, 'Sorteio', '', :n, :t)"), {"u": vencedor, "item": f"GANHADOR RIFA: {r['item_nome']}", "n": nome_real, "t": telefone})
-                        s.execute(text("UPDATE rifas SET status = 'encerrada', ganhador_usuario = :u WHERE id = :id"), {"u": vencedor, "id": int(r['id'])})
-                        s.commit()
-                    img_premio = ""; df_p_img = run_query("SELECT imagem FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
-                    if not df_p_img.empty: img_premio = df_p_img.iloc[0]['imagem']
-                    st.cache_data.clear()
-                    mostrar_vencedor_dialog(nome_real, vencedor, r['item_nome'], img_premio)
-                    registrar_log("Sorteio", f"Vencedor: {vencedor} - Item: {r['item_nome']}"); time.sleep(5); st.rerun()
+                    
+                    # Correção: Busca insensível a maiúsculas/minúsculas
+                    user_data = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": vencedor})
+                    
+                    # Correção: Checa se o usuário existe antes de buscar os dados
+                    if user_data.empty:
+                        st.error(f"⚠️ Erro: O usuário sorteado '{vencedor}' não foi encontrado no cadastro. O sorteio foi cancelado ou precisa ser refeito.")
+                    else:
+                        nome_real = user_data.iloc[0]['nome']
+                        telefone = str(user_data.iloc[0]['telefone'])
+                        
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM rifa_tickets WHERE rifa_id = :rid"), {"rid": int(r['id'])})
+                            s.execute(text("INSERT INTO vendas (data, usuario, item, valor, status, email, nome_real, telefone) VALUES (NOW(), :u, :item, 0, 'Sorteio', '', :n, :t)"), {"u": vencedor, "item": f"GANHADOR RIFA: {r['item_nome']}", "n": nome_real, "t": telefone})
+                            s.execute(text("UPDATE rifas SET status = 'encerrada', ganhador_usuario = :u WHERE id = :id"), {"u": vencedor, "id": int(r['id'])})
+                            s.commit()
+                            
+                        img_premio = ""
+                        df_p_img = run_query("SELECT imagem FROM premios WHERE id = :pid", {"pid": int(r['premio_id'])})
+                        if not df_p_img.empty: img_premio = df_p_img.iloc[0]['imagem']
+                        
+                        st.cache_data.clear()
+                        mostrar_vencedor_dialog(nome_real, vencedor, r['item_nome'], img_premio)
+                        registrar_log("Sorteio", f"Vencedor: {vencedor} - Item: {r['item_nome']}")
+                        time.sleep(5)
+                        st.rerun()
+                        
             if st.button("Cancelar Sorteio (Sem Vencedor)"):
                 with conn.session as s:
                     s.execute(text("DELETE FROM rifa_tickets WHERE rifa_id = :rid"), {"rid": int(r['id'])})
