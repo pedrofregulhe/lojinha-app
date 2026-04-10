@@ -12,7 +12,13 @@ import string
 import uuid
 
 # --- CONFIGURAÇÕES GERAIS ---
-st.set_page_config(page_title="Loja Culligan", layout="wide", page_icon="🎁")
+# O parâmetro menu_items={} ajuda a limpar as opções nativas do Streamlit
+st.set_page_config(
+    page_title="Loja Culligan", 
+    layout="wide", 
+    page_icon="🎁",
+    menu_items={} 
+)
 
 # --- CONEXÃO SQL (NEON) ---
 conn = st.connection("postgresql", type="sql")
@@ -56,6 +62,11 @@ if 'dados_usuario_temp' not in st.session_state: st.session_state['dados_usuario
 css_comum = """
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800;900&display=swap');
     
+    /* ESCONDENDO OS ELEMENTOS DO STREAMLIT (MENU, CABEÇALHO COM FOTO E RODAPÉ) */
+    #MainMenu {visibility: hidden;}
+    [data-testid="stHeader"] {display: none;}
+    footer {visibility: hidden;}
+
     @keyframes gradient { 
         0% { background-position: 0% 50%; } 
         50% { background-position: 100% 50%; } 
@@ -67,8 +78,8 @@ css_comum = """
         color: #31333F; 
     }
     
-    header[data-testid="stHeader"] { display: none; }
-    .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
+    /* APROVEITANDO O ESPAÇO QUE SOBROU DO CABEÇALHO PARA SUBIR OS CARDS */
+    .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; }
 
     .header-style { 
         background: linear-gradient(-45deg, #000428, #004e92, #2F80ED, #56CCF2); 
@@ -104,23 +115,12 @@ css_comum = """
         margin-top: auto !important;
     }
 
-    [data-testid="stTabs"] button[kind="primary"] { 
-        background-color: #0066cc !important; 
-        color: white !important; 
-    }
-    [data-testid="stTabs"] button[kind="primary"]:hover { 
-        background-color: #0052a3 !important; 
-    }
+    [data-testid="stTabs"] button[kind="primary"] { background-color: #0066cc !important; color: white !important; }
+    [data-testid="stTabs"] button[kind="primary"]:hover { background-color: #0052a3 !important; }
     [data-testid="stTabs"] button[kind="primary"] p { color: white !important; }
 
-    [data-testid="stTabs"] button[kind="secondary"] { 
-        background-color: #ffffff !important; 
-        color: #003366 !important; 
-        border: 1px solid #e0e0e0 !important; 
-    }
-    [data-testid="stTabs"] button[kind="secondary"]:hover { 
-        background-color: #f5f5f5 !important;
-    }
+    [data-testid="stTabs"] button[kind="secondary"] { background-color: #ffffff !important; color: #003366 !important; border: 1px solid #e0e0e0 !important; }
+    [data-testid="stTabs"] button[kind="secondary"]:hover { background-color: #f5f5f5 !important; }
 
     div[data-testid="column"] div.stButton > button[kind="secondary"] {
         background-color: #ffffff !important;
@@ -130,7 +130,12 @@ css_comum = """
         min-height: 50px !important;
     }
 
-    [data-testid="stImage"] img { height: 180px !important; object-fit: contain !important; border-radius: 10px; }
+    /* REDUZINDO O TAMANHO DA LOGO/IMAGENS PARA NÃO OCUPAREM TANTA TELA */
+    [data-testid="stImage"] img { height: 110px !important; object-fit: contain !important; border-radius: 10px; }
+
+    /* AUMENTANDO O DESTAQUE DOS NÚMEROS NOS CARDS E NORMALIZANDO O TÍTULO */
+    [data-testid="stMetricValue"] { font-size: 2.2rem !important; }
+    [data-testid="stMetricLabel"] { font-size: 1rem !important; }
 
     .rifa-card { border: 2px solid #FFD700; background: linear-gradient(to bottom right, #fffdf0, #ffffff); padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
     .rifa-tag { background-color: #FFD700; color: #000; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; margin-bottom: 10px; display: inline-block; }
