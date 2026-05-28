@@ -260,22 +260,41 @@ def realizar_logout():
     st.session_state.clear()
     st.rerun()
 
-# --- FUNÇÕES DE ENVIO ---
 def enviar_sms(telefone, mensagem_texto):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
         url = f"{base_url}/sms/2/text/advanced"
         tel_final = formatar_telefone(telefone)
-        if len(tel_final) < 12: return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
-        payload = { "messages": [ { "from": "InfoSMS", "destinations": [{"to": tel_final}], "text": message_texto } ] }
-        headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
-        # Pequeno ajuste no payload interno para aceitar o parâmetro corrigido de escopo
-        payload["messages"][0]["text"] = mensagem_texto
+        
+        if len(tel_final) < 12: 
+            return False, f"Num Inválido: {tel_final}", "CLIENT_ERROR"
+            
+        payload = { 
+            "messages": [ 
+                { 
+                    "from": "InfoSMS", 
+                    "destinations": [{"to": tel_final}], 
+                    "text": mensagem_texto 
+                } 
+            ] 
+        }
+        
+        headers = { 
+            "Authorization": f"App {api_key}", 
+            "Content-Type": "application/json", 
+            "Accept": "application/json" 
+        }
+        
         response = requests.post(url, json=payload, headers=headers)
-        if response.status_code not in [200, 201]: return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
+        
+        if response.status_code not in [200, 201]: 
+            return False, f"Erro SMS {response.status_code}: {response.text}", str(response.status_code)
+            
         return True, "SMS Enviado", str(response.status_code)
-    except Exception as e: return False, f"Erro SMS Exception: {str(e)}", "EXCEPTION"
+        
+    except Exception as e: 
+        return False, f"Erro SMS Exception: {str(e)}", "EXCEPTION"
 
 def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
     try:
