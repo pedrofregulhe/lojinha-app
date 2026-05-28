@@ -985,7 +985,7 @@ def tela_admin():
                     user_data = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": vencedor})
                     
                     if user_data.empty:
-                        st.error(f"⚠️ Erro: O usuário sorteado '{vencedor}' não foi encontrado.")
+                        st.error(f"⚠️ Erro: O usuário sorteado '{vencedor}' não foi encontrado no cadastro.")
                     else:
                         nome_real = user_data.iloc[0]['nome']
                         telefone = str(user_data.iloc[0]['telefone'])
@@ -1045,6 +1045,31 @@ def tela_admin():
                     p_df = ja[ja['id'] == op_j[jsel]].iloc[0]
                     finalizar_bolao_dialog(op_j[jsel], p_df['time_a'], p_df['time_b'])
             else: st.info("Nenhum bolão aguardando encerramento.")
+            
+            st.divider()
+            with st.expander("👀 Ver Palpites dos Usuários"):
+                todos_jogos = run_query("SELECT id, time_a, time_b, data_jogo, status FROM bolao_jogos ORDER BY data_jogo DESC", ttl=0)
+                if not todos_jogos.empty:
+                    op_tj = {f"{row['time_a']} x {row['time_b']} ({row['status']})": row['id'] for _, row in todos_jogos.iterrows()}
+                    tj_sel = st.selectbox("Selecione o jogo para ver os palpites:", list(op_tj.keys()), key="sel_palpites")
+                    id_jogo_sel = op_tj[tj_sel]
+
+                    palpites = run_query("""
+                        SELECT a.usuario, u.nome, a.gols_a, a.gols_b, a.pontos_ganhos
+                        FROM bolao_apostas a
+                        LEFT JOIN usuarios u ON LOWER(a.usuario) = LOWER(u.usuario)
+                        WHERE a.jogo_id = :jid
+                        ORDER BY a.pontos_ganhos DESC, u.nome ASC
+                    """, {"jid": int(id_jogo_sel)}, ttl=0)
+
+                    if not palpites.empty:
+                        palpites = palpites.rename(columns={"usuario": "Login", "nome": "Nome", "gols_a": "Gols Time A", "gols_b": "Gols Time B", "pontos_ganhos": "Pts Ganhos"})
+                        st.dataframe(palpites, use_container_width=True, hide_index=True)
+                        st.caption(f"Total de palpites: {len(palpites)}")
+                    else:
+                        st.info("Nenhum palpite registrado para este jogo ainda.")
+                else:
+                    st.info("Nenhum jogo cadastrado.")
             
             st.divider(); st.markdown("##### 📜 Histórico de Jogos Finalizados")
             jf = run_query("SELECT id, time_a, gols_a, gols_b, time_b, vencedor_usuario as Ganhador FROM bolao_jogos WHERE status = 'Encerrada' ORDER BY id DESC")
