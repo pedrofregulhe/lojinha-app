@@ -1249,6 +1249,24 @@ def tela_principal():
                                         run_transaction("INSERT INTO bolao_apostas (jogo_id, usuario, gols_a, gols_b) VALUES (:jid, :u, :ga, :gb)", {"jid": jid, "u": u_cod, "ga": ga, "gb": gb})
                                         st.cache_data.clear(); st.rerun()
                     else: st.info("Nenhum confronto disponível para apostar.")
+                    
+                    st.divider()
+                    st.markdown("### 🏆 Hall da Fama dos Bolões")
+                    jogos_encerrados = run_query("SELECT time_a, time_b, gols_a, gols_b, vencedor_usuario, data_jogo FROM bolao_jogos WHERE status = 'Encerrada' ORDER BY id DESC")
+                    
+                    if not jogos_encerrados.empty:
+                        cols_hf = st.columns(3)
+                        for i, (_, row) in enumerate(jogos_encerrados.iterrows()):
+                            with cols_hf[i % 3]:
+                                st.markdown(f"""
+                                <div class="winner-card" style="padding: 15px; margin-bottom: 15px;">
+                                    <div class="winner-tag" style="font-size: 10px;">ENCERRADO</div>
+                                    <h4 style="margin:5px 0; color:#333;">{row['time_a']} {row['gols_a']} x {row['gols_b']} {row['time_b']}</h4>
+                                    <p style="font-size:13px; color:#28a745; font-weight:bold; margin-top:5px; margin-bottom:0;">👑 Vencedor(es):<br>{row['vencedor_usuario']}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    else:
+                        st.info("Nenhum bolão foi finalizado ainda. O Hall da Fama aguarda seus primeiros campeões!")
             
             with abas[abas_nome.index("📜 Meus Resgates")]:
                 st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
