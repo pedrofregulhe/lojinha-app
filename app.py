@@ -270,28 +270,6 @@ def registrar_log(acao, detalhes):
         run_transaction("INSERT INTO logs (data, responsavel, acao, detalhes) VALUES (NOW(), :resp, :acao, :det)", {"resp": resp, "acao": acao, "det": detalhes})
     except Exception as e: print(f"Erro log: {e}")
 
-# --- MOTOR DE PONTUAÇÃO DO BOLÃO ---
-def calcular_pontos_aposta(gols_a_real, gols_b_real, gols_a_aposta, gols_b_aposta):
-    pontos = 0
-    saldo_real = gols_a_real - gols_b_real
-    vencedor_real = "A" if saldo_real > 0 else "B" if saldo_real < 0 else "Empate"
-    
-    saldo_aposta = gols_a_aposta - gols_b_aposta
-    vencedor_aposta = "A" if saldo_aposta > 0 else "B" if saldo_aposta < 0 else "Empate"
-    
-    if vencedor_real == vencedor_aposta:
-        pontos += 10
-    if saldo_real == saldo_aposta:
-        pontos += 5
-    if gols_a_real == gols_a_aposta:
-        pontos += 3
-    if gols_b_real == gols_b_aposta:
-        pontos += 3
-    if (gols_a_real == gols_a_aposta) and (gols_b_real == gols_b_aposta):
-        pontos += 10
-        
-    return pontos
-
 # --- LÓGICA DE NEGÓCIO ---
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()}, ttl=0)
@@ -589,112 +567,149 @@ def confirmar_compra_ticket(rifa_id, item_nome, custo, usuario_cod):
 def finalizar_bolao_dialog(jogo_id, time_a, time_b):
     st.subheader(f"{time_a} x {time_b}")
     
-    # Controle de etapas via Session State do Streamlit para o modal
+    # Controle de etapas via Session State
     fase_key = f"bolao_fase_{jogo_id}"
     if fase_key not in st.session_state:
         st.session_state[fase_key] = 1
 
-    # --- ETAPA 1: Lançar placar e ver quem ganhou ---
+    # --- ETAPA 1: Lançar placar e ver os cravadores ---
     if st.session_state[fase_key] == 1:
-        st.markdown("Insira o placar oficial do jogo para descobrirmos os ganhadores:")
+        st.markdown("Insira o placar oficial da partida:")
         gols_a = st.number_input(f"Gols {time_a}", min_value=0, step=1, value=0)
         gols_b = st.number_input(f"Gols {time_b}", min_value=0, step=1, value=0)
         
-        if st.button("Verificar Resultados Técnicos", type="primary", use_container_width=True):
-            apostas_df = run_query("SELECT * FROM bolao_apostas WHERE jogo_id = :jid", {"jid": int(jogo_id)}, ttl=0)
+        if st.button("Apurar Resultados", type="primary", use_container_width=True):
+            apostas_df = run_query("""
+                SELECT a.usuario, a.gols_a, a.gols_b, u.nome 
+                FROM bolao_apostas a 
+                LEFT JOIN usuarios u ON LOWER(a.usuario) = LOWER(u.usuario) 
+                WHERE a.jogo_id = :jid
+            """, {"jid": int(jogo_id)}, ttl=0)
+            
             if apostas_df.empty:
-                # Se não houve apostas, simplesmente fecha o jogo
+                # Nenhuma aposta foi feita
                 run_transaction("UPDATE bolao_jogos SET gols_a = :ga, gols_b = :gb, status = 'Encerrada', vencedor_usuario = 'Sem Apostas' WHERE id = :id", {"ga": gols_a, "gb": gols_b, "id": int(jogo_id)})
-                st.warning("Nenhuma aposta foi feita neste jogo. A rodada foi encerrada sem ganhadores.")
+                st.warning("Nenhuma aposta foi registrada para este jogo. O jogo foi encerrado sem ganhadores.")
                 st.cache_data.clear()
                 del st.session_state[fase_key]
                 time.sleep(2); st.rerun()
                 return
 
-            lista_resultados = []
+            acertadores = []
             for _, row in apostas_df.iterrows():
-                pts = calcular_pontos_aposta(gols_a, gols_b, int(row['gols_a']), int(row['gols_b']))
-                lista_resultados.append({"usuario": row['usuario'], "pontos": pts, "ap_a": row['gols_a'], "ap_b": row['gols_b']})
-                
-            res_df = pd.DataFrame(lista_resultados)
-            maior_pontuacao = res_df['pontos'].max()
-            vencedores = res_df[res_df['pontos'] == maior_pontuacao].to_dict('records')
+                if int(row['gols_a']) == gols_a and int(row['gols_b']) == gols_b:
+                    acertadores.append({"usuario": row['usuario'], "nome": row['nome']})
+                    
+            if len(acertadores) == 0:
+                # Ninguém cravou
+                run_transaction("UPDATE bolao_jogos SET gols_a = :ga, gols_b = :gb, status = 'Encerrada', vencedor_usuario = 'Sem Ganhadores' WHERE id = :id", {"ga": gols_a, "gb": gols_b, "id": int(jogo_id)})
+                st.warning("Nenhum usuário conseguiu cravar o placar exato. O jogo foi encerrado sem ganhadores.")
+                st.cache_data.clear()
+                del st.session_state[fase_key]
+                time.sleep(2); st.rerun()
+                return
             
-            # Salva na sessão para exibir na etapa 2
-            st.session_state[f"bolao_vencedores_{jogo_id}"] = vencedores
+            # Armazena quem cravou para a próxima etapa
+            st.session_state[f"bolao_acertadores_{jogo_id}"] = acertadores
             st.session_state[f"bolao_placar_{jogo_id}"] = (gols_a, gols_b)
-            st.session_state[f"bolao_maior_pts_{jogo_id}"] = maior_pontuacao
             st.session_state[fase_key] = 2
             st.rerun()
 
-    # --- ETAPA 2: Confirmar o prêmio e distribuir pontos ---
+    # --- ETAPA 2: Roleta de Desempate (se houver mais de um) ---
     elif st.session_state[fase_key] == 2:
         gols_a, gols_b = st.session_state[f"bolao_placar_{jogo_id}"]
-        vencedores_list = st.session_state[f"bolao_vencedores_{jogo_id}"]
-        maior_pontuacao = st.session_state[f"bolao_maior_pts_{jogo_id}"]
+        acertadores = st.session_state[f"bolao_acertadores_{jogo_id}"]
         
         st.success(f"**Resultado Real:** {time_a} {gols_a} x {gols_b} {time_b}")
-        st.info(f"🏆 **Maior Pontuação Alcançada:** {maior_pontuacao} pts")
-        st.write("👥 **Usuário(s) Vencedor(es):**")
         
-        nomes_vencedores = []
-        for v in vencedores_list:
-            u_info = run_query("SELECT nome FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": v['usuario']}, ttl=0)
-            nome_real = u_info.iloc[0]['nome'] if not u_info.empty else v['usuario']
-            nomes_vencedores.append(nome_real)
-            st.markdown(f"- **{nome_real}** (Apostou: {v['ap_a']} x {v['ap_b']})")
+        # Caso 1: Apenas 1 ganhador (Pula a roleta)
+        if len(acertadores) == 1:
+            st.balloons()
+            vencedor_unico = acertadores[0]
+            st.markdown("### 🎯 Acerto Único!")
+            st.write(f"Incrível! Apenas o usuário **{vencedor_unico['nome']}** cravou este resultado!")
+            st.session_state[f"bolao_vencedor_final_{jogo_id}"] = vencedor_unico
             
-        st.divider()
-        st.markdown("##### 💎 Distribuição de Prêmio")
-        pontos_premio = st.number_input("Quantos pontos cada vencedor acima deve receber na Lojinha?", min_value=0, step=50, value=200)
+            if st.button("Avançar para Premiação", type="primary", use_container_width=True):
+                st.session_state[fase_key] = 3
+                st.rerun()
+                
+        # Caso 2: Empate (Inicia a Roleta de Sorteio)
+        else:
+            st.markdown("### 🚨 Empate!")
+            st.write(f"Tivemos **{len(acertadores)} usuários** que cravaram o placar exato. O vencedor será definido na sorte!")
+            
+            lista_nomes_disputa = [a['nome'] for a in acertadores]
+            st.markdown(f"**Na disputa:** {', '.join(lista_nomes_disputa)}")
+            
+            espaco_roleta = st.empty()
+            
+            col_b1, col_b2, col_b3 = st.columns([1, 2, 1])
+            if col_b2.button("🎰 GIRAR ROLETA", type="primary", use_container_width=True):
+                # Animação de giro super rápida que vai desacelerando
+                for i in range(25):
+                    nome_temp = random.choice(acertadores)['nome']
+                    espaco_roleta.markdown(f"""
+                    <div style='border: 3px solid #2F80ED; padding: 25px; text-align: center; border-radius: 15px; background: #f0f6ff;'>
+                        <h1 style='color: #003366; font-size: 30px; margin: 0;'>🎲 {nome_temp} 🎲</h1>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    time.sleep(max(0.05, i * 0.015)) 
+                
+                # Para em um campeão aleatório
+                vencedor_sorteado = random.choice(acertadores)
+                
+                espaco_roleta.markdown(f"""
+                    <div style='border: 4px solid #28a745; padding: 25px; text-align: center; border-radius: 15px; background: #f0fff4;'>
+                        <h2 style='color: #28a745; font-size: 20px; margin: 0;'>🏆 GRANDE CAMPEÃO(A) 🏆</h2>
+                        <h1 style='color: #155724; font-size: 35px; font-weight: 900; margin: 0;'>{vencedor_sorteado['nome']}</h1>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.balloons()
+                
+                # Salva o vencedor único sorteado e vai para a fase 3
+                st.session_state[f"bolao_vencedor_final_{jogo_id}"] = vencedor_sorteado
+                time.sleep(4) # Pausa dramática para gravação da tela
+                st.session_state[fase_key] = 3
+                st.rerun()
+
+    # --- ETAPA 3: Inserir prêmio e Disparar mensagens ---
+    elif st.session_state[fase_key] == 3:
+        vencedor_final = st.session_state[f"bolao_vencedor_final_{jogo_id}"]
+        gols_a, gols_b = st.session_state[f"bolao_placar_{jogo_id}"]
         
-        col_voltar, col_premiar = st.columns(2)
-        if col_voltar.button("Corrigir Placar"):
-            st.session_state[fase_key] = 1
-            st.rerun()
-            
-        if col_premiar.button("Confirmar e Premiar", type="primary"):
-            string_vencedores = ", ".join(nomes_vencedores)
-            
+        st.markdown(f"### 👑 Vencedor: {vencedor_final['nome']}")
+        pontos_premio = st.number_input("Prêmio (Pontos Lojinha):", min_value=0, step=50, value=200)
+        
+        if st.button("Confirmar e Premiar", type="primary", use_container_width=True):
+            # 1. Finaliza a partida no banco e registra o vencedor final do sorteio
             with conn.session as s:
-                # 1. Encerra a partida no banco e registra os ganhadores na coluna
                 s.execute(text("UPDATE bolao_jogos SET gols_a = :ga, gols_b = :gb, status = 'Encerrada', vencedor_usuario = :vu WHERE id = :id"), 
-                          {"ga": gols_a, "gb": gols_b, "vu": string_vencedores, "id": int(jogo_id)})
+                          {"ga": gols_a, "gb": gols_b, "vu": vencedor_final['nome'], "id": int(jogo_id)})
                 
-                # 2. Distribui os pontos na carteira dos contemplados
-                for v in vencedores_list:
-                    v_user = v['usuario']
-                    
-                    s.execute(text("UPDATE usuarios SET saldo = saldo + :p, pontos_historico = COALESCE(pontos_historico, 0) + :p WHERE LOWER(usuario) = LOWER(:u)"), 
-                              {"p": float(pontos_premio), "u": v_user})
-                    
-                    s.execute(text("INSERT INTO vendas (data, usuario, item, valor, status, nome_real, telefone) VALUES (NOW(), :u, :item, 0, 'Liberado', :nr, :t)"),
-                              {"u": v_user, "item": f"Vencedor Bolão: {time_a} x {time_b}", "nr": v_user, "t": ""})
+                # 2. Distribui os pontos e gera a notificação no painel do usuário
+                s.execute(text("UPDATE usuarios SET saldo = saldo + :p, pontos_historico = COALESCE(pontos_historico, 0) + :p WHERE LOWER(usuario) = LOWER(:u)"), 
+                          {"p": float(pontos_premio), "u": vencedor_final['usuario']})
                 
+                s.execute(text("INSERT INTO vendas (data, usuario, item, valor, status, nome_real, telefone) VALUES (NOW(), :u, :item, 0, 'Liberado', :nr, :t)"),
+                          {"u": vencedor_final['usuario'], "item": f"Vencedor Bolão: {time_a} x {time_b}", "nr": vencedor_final['nome'], "t": ""})
                 s.commit()
                 
-            # 3. Disparos WhatsApp e SMS
-            for v in vencedores_list:
-                u_info = run_query("SELECT nome, telefone FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": v['usuario']}, ttl=0)
-                if not u_info.empty:
-                    nome_v = u_info.iloc[0]['nome']
-                    tel_v = str(u_info.iloc[0]['telefone'])
-                    
-                    msg_sms = f"Culli Copa: GOLAAACO! {nome_v}, voce venceu o Bolao e faturou {pontos_premio} pts! Confira na Lojinha."
-                    enviar_sms(tel_v, msg_sms)
-                    
-                    var1_jogo = f"Bolão Copa: {time_a} x {time_b}"
-                    var2_pontos = f"Parabéns! Você ganhou +{pontos_premio} pts!"
-                    enviar_whatsapp_template(tel_v, [nome_v, var1_jogo, var2_pontos], "atualizar_envio_pedidos")
-                    
-            # Limpa o cache e as variáveis da sessão
+            # 3. Dispara as mensagens no Infobip
+            u_info = run_query("SELECT telefone FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": vencedor_final['usuario']}, ttl=0)
+            if not u_info.empty:
+                tel_v = str(u_info.iloc[0]['telefone'])
+                msg_sms = f"Culli Copa: GOLAAACO! {vencedor_final['nome']}, voce cravou o placar do Bolao e faturou {pontos_premio} pts! Confira na Lojinha."
+                enviar_sms(tel_v, msg_sms)
+                enviar_whatsapp_template(tel_v, [vencedor_final['nome'], f"Bolão Copa: {time_a} x {time_b}", f"Parabéns! Você ganhou +{pontos_premio} pts!"], "atualizar_envio_pedidos")
+                
+            # Limpeza do sistema
             st.cache_data.clear()
             del st.session_state[fase_key]
-            del st.session_state[f"bolao_vencedores_{jogo_id}"]
+            del st.session_state[f"bolao_vencedor_final_{jogo_id}"]
             
-            st.balloons()
-            st.success("Prêmios distribuídos e partida encerrada com sucesso!")
-            time.sleep(3)
+            st.success("Prêmio distribuído e partida encerrada com sucesso!")
+            time.sleep(2)
             st.rerun()
 
 @st.dialog("🎉 TEMOS UM VENCEDOR!")
@@ -1041,7 +1056,7 @@ def tela_admin():
             if not ja.empty:
                 op_j = {f"{row['time_a']} x {row['time_b']} ({row['data_jogo'].strftime('%d/%m %H:%M')})": row['id'] for _, row in ja.iterrows()}
                 jsel = st.selectbox("Selecione o jogo para encerrar:", list(op_j.keys()))
-                if st.button("Inserir Placar", type="primary"):
+                if st.button("Apurar Vencedor", type="primary"):
                     p_df = ja[ja['id'] == op_j[jsel]].iloc[0]
                     finalizar_bolao_dialog(op_j[jsel], p_df['time_a'], p_df['time_b'])
             else: st.info("Nenhum bolão aguardando encerramento.")
@@ -1055,15 +1070,15 @@ def tela_admin():
                     id_jogo_sel = op_tj[tj_sel]
 
                     palpites = run_query("""
-                        SELECT a.usuario, u.nome, a.gols_a, a.gols_b, a.pontos_ganhos
+                        SELECT a.usuario, u.nome, a.gols_a, a.gols_b
                         FROM bolao_apostas a
                         LEFT JOIN usuarios u ON LOWER(a.usuario) = LOWER(u.usuario)
                         WHERE a.jogo_id = :jid
-                        ORDER BY a.pontos_ganhos DESC, u.nome ASC
+                        ORDER BY u.nome ASC
                     """, {"jid": int(id_jogo_sel)}, ttl=0)
 
                     if not palpites.empty:
-                        palpites = palpites.rename(columns={"usuario": "Login", "nome": "Nome", "gols_a": "Gols Time A", "gols_b": "Gols Time B", "pontos_ganhos": "Pts Ganhos"})
+                        palpites = palpites.rename(columns={"usuario": "Login", "nome": "Nome", "gols_a": "Gols Time A", "gols_b": "Gols Time B"})
                         st.dataframe(palpites, use_container_width=True, hide_index=True)
                         st.caption(f"Total de palpites: {len(palpites)}")
                     else:
@@ -1209,22 +1224,15 @@ def tela_principal():
                 
             if st.session_state.get('acesso_bolao', False):
                 with abas[abas_nome.index("⚽ Bolão Copa")]:
-                    with st.expander("📖 Entenda as Regras e a Pontuação do Bolão (Clique para expandir)"):
+                    with st.expander("📖 Entenda as Regras da Premiação (Clique para expandir)"):
                         st.markdown("""
-                        O sistema do Bolão recompensa a sua capacidade de fazer uma **leitura técnica** do jogo. 
-                        Quem chegar mais perto da realidade da partida levará os pontos para casa!
+                        No nosso Bolão, a regra é simples e direta: **Só leva o prêmio quem CRAVAR o placar exato do jogo!**
                         
-                        **A pontuação funciona em camadas:**
-                        * **Acertar quem vence o jogo (ou se dá empate):** +10 pontos
-                        * **Acertar a diferença de gols (saldo):** +5 pontos
-                        * **Acertar os gols do Time A:** +3 pontos
-                        * **Acertar os gols do Time B:** +3 pontos
-                        * **CRAVAR o placar exato:** +10 pontos bônus
+                        * Se você apostou 2x1 e o jogo for 2x1, você ganha! 
+                        * Se você apostou 2x1 e o jogo for 3x1 (mesmo você tendo acertado quem venceria), não pontua nesta rodada.
                         
-                        *Exemplo de Desempate:* Se o jogo terminar **Time Z 3 x 2 Time Y**.
-                        Alguém que apostou 4x2 ganharia pontos por acertar o vencedor, o saldo de +1 e os gols do perdedor (Total: 18 pts).
-                        Alguém que apostou 2x0 ganharia apenas por acertar o vencedor e o saldo (Total: 15 pts). 
-                        Aquele que somou 18 vence!
+                        **Desempate:**
+                        Se mais de uma pessoa acertar o placar em cheio, o sistema realizará um **sorteio automático** (uma verdadeira roleta da sorte) para definir o grande campeão único da rodada. Que os jogos comecem!
                         """)
                     
                     st.markdown("### Seus Palpites")
@@ -1262,7 +1270,7 @@ def tela_principal():
                                 <div class="winner-card" style="padding: 15px; margin-bottom: 15px;">
                                     <div class="winner-tag" style="font-size: 10px;">ENCERRADO</div>
                                     <h4 style="margin:5px 0; color:#333;">{row['time_a']} {row['gols_a']} x {row['gols_b']} {row['time_b']}</h4>
-                                    <p style="font-size:13px; color:#28a745; font-weight:bold; margin-top:5px; margin-bottom:0;">👑 Vencedor(es):<br>{row['vencedor_usuario']}</p>
+                                    <p style="font-size:13px; color:#28a745; font-weight:bold; margin-top:5px; margin-bottom:0;">👑 Vencedor:<br>{row['vencedor_usuario']}</p>
                                 </div>
                                 """, unsafe_allow_html=True)
                     else:
