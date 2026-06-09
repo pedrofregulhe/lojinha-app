@@ -910,6 +910,56 @@ def tela_admin():
                     ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp, lgpd, bolao_check)
                     if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
                     else: st.error(msg)
+            
+            st.markdown("---")
+            st.markdown("##### 📥 Cadastro em Lote via Excel")
+            st.info("O arquivo .xlsx deve conter exatamente as colunas: **usuario, senha, nome, saldo, tipo, telefone, valor_ponto, consentimento_lgpd, acesso_bolao**")
+            arquivo_excel = st.file_uploader("Upload de Planilha", type=["xlsx"], key="up_users")
+            if arquivo_excel:
+                if st.button("🚀 Processar Cadastros", type="primary"):
+                    try:
+                        df_upload = pd.read_excel(arquivo_excel)
+                        colunas_req = ['usuario', 'senha', 'nome', 'saldo', 'tipo', 'telefone', 'valor_ponto', 'consentimento_lgpd', 'acesso_bolao']
+                        
+                        if not all(col in df_upload.columns for col in colunas_req):
+                            st.error(f"O arquivo deve conter exatamente as colunas: {', '.join(colunas_req)}")
+                        else:
+                            sucessos = 0
+                            erros = []
+                            pb = st.progress(0)
+                            tot = len(df_upload)
+                            
+                            for idx, row in df_upload.iterrows():
+                                u_val = str(row['usuario']).strip()
+                                s_val = str(row['senha']).strip()
+                                n_val = str(row['nome']).strip()
+                                bal_val = float(row['saldo']) if pd.notna(row['saldo']) else 0.0
+                                t_val = str(row['tipo']).lower().strip()
+                                tel_val = str(row['telefone']).strip()
+                                vp_val = float(row['valor_ponto']) if pd.notna(row['valor_ponto']) else 0.50
+                                lgpd_val = bool(row['consentimento_lgpd']) if pd.notna(row['consentimento_lgpd']) else False
+                                bolao_val = bool(row['acesso_bolao']) if pd.notna(row['acesso_bolao']) else False
+                                
+                                # Pula linhas totalmente vazias baseadas no usuário
+                                if u_val.lower() == 'nan' or u_val == '':
+                                    tot -= 1
+                                    continue
+                                
+                                ok, msg = cadastrar_novo_usuario(u_val, s_val, n_val, bal_val, t_val, tel_val, vp_val, lgpd_val, bolao_val)
+                                if ok:
+                                    sucessos += 1
+                                else:
+                                    erros.append(f"Linha {idx+2} ({u_val}): {msg}")
+                                    
+                                if tot > 0: pb.progress((idx + 1) / tot)
+                                
+                            st.success(f"Lote processado! {sucessos} cadastros realizados com sucesso.")
+                            if erros:
+                                with st.expander("⚠️ Ver erros de importação"):
+                                    for erro in erros: st.write(erro)
+                            st.cache_data.clear()
+                    except Exception as e:
+                        st.error(f"Erro ao ler o arquivo Excel. Verifique se o formato está correto: {e}")
                     
         with st.expander("💰 Distribuir Pontos (Soma no Ranking)", expanded=False):
             c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
