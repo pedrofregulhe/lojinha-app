@@ -4,3 +4,4 @@ bcrypt
 requests
 sqlalchemy
 psycopg2-binary
+openpyxl
