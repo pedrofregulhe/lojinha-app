@@ -1286,7 +1286,7 @@ def tela_principal():
                         """)
                     
                     st.markdown("### Seus Palpites")
-                    jogos_ativos = run_query("SELECT * FROM bolao_jogos WHERE status = 'Aberto' ORDER BY data_jogo ASC", ttl=0)
+                    jogos_ativos = run_query("SELECT * FROM bolao_jogos WHERE status = 'Aberto' AND data_jogo > NOW() ORDER BY data_jogo ASC", ttl=0)
                     if not jogos_ativos.empty:
                         col_jogos = st.columns(3)
                         for i, (_, jogo) in enumerate(jogos_ativos.iterrows()):
