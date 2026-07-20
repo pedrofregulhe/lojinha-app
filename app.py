@@ -766,7 +766,7 @@ def processar_envios_dialog(df_selecionados, tipo_envio="vendas"):
             
             if usar_zap:
                 if len(formatar_telefone(tel)) >= 12:
-                    ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos") if tipo_envio == "vendas" else enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos")
+                    ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos") if tipo_envio == "vendas" else enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos_lojinha")
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
                 else: logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
             
