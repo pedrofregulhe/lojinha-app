@@ -35,33 +35,6 @@ def iniciar_banco_dados():
             s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token TEXT;"))
             s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token_expira TIMESTAMP;"))
             
-            # NOVAS COLUNAS E TABELAS DO BOLÃO COPA
-            s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS acesso_bolao BOOLEAN DEFAULT FALSE;"))
-            
-            s.execute(text("""
-                CREATE TABLE IF NOT EXISTS bolao_jogos (
-                    id SERIAL PRIMARY KEY,
-                    time_a VARCHAR(50),
-                    time_b VARCHAR(50),
-                    data_jogo TIMESTAMP,
-                    gols_a INT DEFAULT NULL,
-                    gols_b INT DEFAULT NULL,
-                    status VARCHAR(20) DEFAULT 'Aberto',
-                    vencedor_usuario VARCHAR(255) DEFAULT NULL
-                );
-            """))
-            s.execute(text("ALTER TABLE bolao_jogos ADD COLUMN IF NOT EXISTS vencedor_usuario VARCHAR(255);"))
-            
-            s.execute(text("""
-                CREATE TABLE IF NOT EXISTS bolao_apostas (
-                    id SERIAL PRIMARY KEY,
-                    jogo_id INT REFERENCES bolao_jogos(id) ON DELETE CASCADE,
-                    usuario VARCHAR(50),
-                    gols_a INT,
-                    gols_b INT,
-                    pontos_ganhos INT DEFAULT 0
-                );
-            """))
             s.commit()
         except Exception as e:
             print(f"Erro BD: {e}") 
@@ -78,7 +51,6 @@ if 'valor_ponto_usuario' not in st.session_state: st.session_state['valor_ponto_
 if 'admin_mode' not in st.session_state: st.session_state['admin_mode'] = True 
 if 'supervisor_mode' not in st.session_state: st.session_state['supervisor_mode'] = True 
 if 'lgpd_pendente' not in st.session_state: st.session_state['lgpd_pendente'] = False
-if 'acesso_bolao' not in st.session_state: st.session_state['acesso_bolao'] = False
 
 if 'em_verificacao_2fa' not in st.session_state: st.session_state['em_verificacao_2fa'] = False
 if 'codigo_2fa_esperado' not in st.session_state: st.session_state['codigo_2fa_esperado'] = ""
@@ -125,8 +97,6 @@ css_comum = """
     .winner-card { border: 2px solid #28a745; background: linear-gradient(to bottom right, #f0fff4, #ffffff); padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
     .winner-tag { background-color: #28a745; color: #fff; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 12px; margin-bottom: 10px; display: inline-block; }
 
-    .bolao-card { border: 2px solid #2F80ED; background: linear-gradient(to bottom right, #f0f6ff, #ffffff); padding: 18px; border-radius: 12px; text-align: center; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-    .bolao-tag { background-color: #2F80ED; color: white; padding: 3px 12px; border-radius: 15px; font-weight: bold; font-size: 11px; margin-bottom: 8px; display: inline-block; }
 
     @media only screen and (max-width: 600px) {
         .header-style { height: auto !important; padding: 15px !important; text-align: center !important; }
@@ -191,7 +161,6 @@ def verificar_sessao_automatica():
             if not df.empty:
                 row = df.iloc[0]
                 tem_lgpd = bool(row.get('consentimento_lgpd', False))
-                acesso_bolao = bool(row.get('acesso_bolao', False))
                 st.session_state.update({
                     'logado': True,
                     'usuario_cod': row['usuario'],
@@ -199,8 +168,7 @@ def verificar_sessao_automatica():
                     'tipo_usuario': str(row['tipo']).lower().strip(),
                     'saldo_atual': float(row['saldo']),
                     'valor_ponto_usuario': float(row.get('valor_ponto', 0.50) or 0.50),
-                    'lgpd_pendente': not tem_lgpd,
-                    'acesso_bolao': acesso_bolao
+                    'lgpd_pendente': not tem_lgpd
                 })
                 st.rerun()
             else:
@@ -241,11 +209,26 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_sald
         url = f"{base_url}/whatsapp/1/message/template"
         tel_final = formatar_telefone(telefone)
         if len(tel_final) < 12: return False, f"Número inválido: {tel_final}", "CLIENT_ERROR"
-        payload = { "messages": [ { "from": sender, "to": tel_final, "content": { "templateName": nome_template, "templateData": { "body": { "placeholders": parametros } }, "language": "pt_BR" } } ] }
+        # Idioma deve bater EXATAMENTE com o registrado no Infobip para cada template:
+        # "Portuguese (POR)" = "pt" | "Portuguese Brazil" = "pt_BR"
+        idiomas_por_template = { "atualizar_saldo_pedidos_lojinha": "pt" }
+        idioma = idiomas_por_template.get(nome_template, "pt_BR")
+        payload = { "messages": [ { "from": sender, "to": tel_final, "content": { "templateName": nome_template, "templateData": { "body": { "placeholders": [str(p) for p in parametros] } }, "language": idioma } } ] }
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code not in [200, 201]: return False, f"Erro API {response.status_code}: {response.text}", str(response.status_code)
-        return True, "Enviado com Sucesso", str(response.status_code)
+        # IMPORTANTE: o Infobip retorna HTTP 200 mesmo quando a mensagem é REJEITADA.
+        # O status real de cada mensagem vem no corpo da resposta (messages[0].status).
+        try:
+            dados_resp = response.json()
+            msg_status = dados_resp.get("messages", [{}])[0].get("status", {})
+            grupo = str(msg_status.get("groupName", "")).upper()
+            if grupo in ("REJECTED", "UNDELIVERABLE"):
+                detalhe = msg_status.get("description") or msg_status.get("name") or "Rejeitado pelo Infobip"
+                return False, f"Rejeitado pelo Infobip: {detalhe}", grupo
+            return True, f"Aceito pelo Infobip ({grupo or 'PENDING'})", str(response.status_code)
+        except Exception:
+            return True, "Enviado (status do corpo não verificado)", str(response.status_code)
     except Exception as e: return False, f"Erro Conexão: {str(e)}", "EXCEPTION"
 
 # --- BANCO DE DADOS ---
@@ -273,13 +256,12 @@ def registrar_log(acao, detalhes):
 # --- LÓGICA DE NEGÓCIO ---
 def validar_login(user_input, pass_input):
     df = run_query("SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": user_input.strip()}, ttl=0)
-    if df.empty: return False, None, None, 0, None, None, 0.50, False, False
+    if df.empty: return False, None, None, 0, None, None, 0.50, False
     linha = df.iloc[0]
     if verificar_senha_hash(pass_input.strip(), linha['senha']):
         v_ponto = float(linha.get('valor_ponto', 0.50) or 0.50)
         tem_lgpd = bool(linha.get('consentimento_lgpd', False))
-        ac_bolao = bool(linha.get('acesso_bolao', False))
-        return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone']), int(linha['id']), v_ponto, tem_lgpd, ac_bolao
+        return True, linha['nome'], str(linha['tipo']).lower().strip(), float(linha['saldo']), str(linha['telefone']), int(linha['id']), v_ponto, tem_lgpd
     return False, None, None, 0, None, None, 0.50, False, False
 
 def salvar_venda(usuario_cod, item_nome, custo, email_contato, telefone_resgate):
@@ -321,7 +303,7 @@ def comprar_ticket_rifa(rifa_id, custo, usuario_cod):
     except Exception as e: return False, f"Erro: {str(e)}"
 
 # --- CADASTRO E DISTRIBUIÇÃO ---
-def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_ponto=0.50, consentimento_lgpd=False, acesso_bolao=False):
+def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_ponto=0.50, consentimento_lgpd=False):
     usuario = usuario.strip()
     try:
         df = run_query("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": usuario}, ttl=0)
@@ -330,8 +312,8 @@ def cadastrar_novo_usuario(usuario, senha, nome, saldo, tipo, telefone, valor_po
         data_cons = datetime.now() if consentimento_lgpd else None
 
         run_transaction(
-            "INSERT INTO usuarios (usuario, senha, nome, saldo, pontos_historico, tipo, telefone, valor_ponto, consentimento_lgpd, data_consentimento, acesso_bolao) VALUES (:u, :s, :n, :bal, :bal, :t, :tel, :vp, :lgpd, :dt_lgpd, :ab)",
-            {"u": usuario, "s": gerar_hash(senha), "n": nome, "bal": saldo, "t": tipo, "tel": formatar_telefone(telefone), "vp": valor_ponto, "lgpd": consentimento_lgpd, "dt_lgpd": data_cons, "ab": acesso_bolao}
+            "INSERT INTO usuarios (usuario, senha, nome, saldo, pontos_historico, tipo, telefone, valor_ponto, consentimento_lgpd, data_consentimento) VALUES (:u, :s, :n, :bal, :bal, :t, :tel, :vp, :lgpd, :dt_lgpd)",
+            {"u": usuario, "s": gerar_hash(senha), "n": nome, "bal": saldo, "t": tipo, "tel": formatar_telefone(telefone), "vp": valor_ponto, "lgpd": consentimento_lgpd, "dt_lgpd": data_cons}
         )
         registrar_log("Novo Cadastro", f"Criou usuário: {usuario}")
         return True, "Cadastrado com sucesso!"
@@ -563,155 +545,6 @@ def confirmar_compra_ticket(rifa_id, item_nome, custo, usuario_cod):
         if ok: st.balloons(); st.success(msg); time.sleep(2); st.rerun()
         else: st.error(msg)
 
-@st.dialog("⚽ Finalizar e Premiar Bolão")
-def finalizar_bolao_dialog(jogo_id, time_a, time_b):
-    st.subheader(f"{time_a} x {time_b}")
-    
-    # Controle de etapas via Session State
-    fase_key = f"bolao_fase_{jogo_id}"
-    if fase_key not in st.session_state:
-        st.session_state[fase_key] = 1
-
-    # --- ETAPA 1: Lançar placar e ver os cravadores ---
-    if st.session_state[fase_key] == 1:
-        st.markdown("Insira o placar oficial da partida:")
-        gols_a = st.number_input(f"Gols {time_a}", min_value=0, step=1, value=0)
-        gols_b = st.number_input(f"Gols {time_b}", min_value=0, step=1, value=0)
-        
-        if st.button("Apurar Resultados", type="primary", use_container_width=True):
-            apostas_df = run_query("""
-                SELECT a.usuario, a.gols_a, a.gols_b, u.nome 
-                FROM bolao_apostas a 
-                LEFT JOIN usuarios u ON LOWER(a.usuario) = LOWER(u.usuario) 
-                WHERE a.jogo_id = :jid
-            """, {"jid": int(jogo_id)}, ttl=0)
-            
-            if apostas_df.empty:
-                # Nenhuma aposta foi feita
-                run_transaction("UPDATE bolao_jogos SET gols_a = :ga, gols_b = :gb, status = 'Encerrada', vencedor_usuario = 'Sem Apostas' WHERE id = :id", {"ga": gols_a, "gb": gols_b, "id": int(jogo_id)})
-                st.warning("Nenhuma aposta foi registrada para este jogo. O jogo foi encerrado sem ganhadores.")
-                st.cache_data.clear()
-                del st.session_state[fase_key]
-                time.sleep(2); st.rerun()
-                return
-
-            acertadores = []
-            for _, row in apostas_df.iterrows():
-                if int(row['gols_a']) == gols_a and int(row['gols_b']) == gols_b:
-                    acertadores.append({"usuario": row['usuario'], "nome": row['nome']})
-                    
-            if len(acertadores) == 0:
-                # Ninguém cravou
-                run_transaction("UPDATE bolao_jogos SET gols_a = :ga, gols_b = :gb, status = 'Encerrada', vencedor_usuario = 'Sem Ganhadores' WHERE id = :id", {"ga": gols_a, "gb": gols_b, "id": int(jogo_id)})
-                st.warning("Nenhum usuário conseguiu cravar o placar exato. O jogo foi encerrado sem ganhadores.")
-                st.cache_data.clear()
-                del st.session_state[fase_key]
-                time.sleep(2); st.rerun()
-                return
-            
-            # Armazena quem cravou para a próxima etapa
-            st.session_state[f"bolao_acertadores_{jogo_id}"] = acertadores
-            st.session_state[f"bolao_placar_{jogo_id}"] = (gols_a, gols_b)
-            st.session_state[fase_key] = 2
-            st.rerun()
-
-    # --- ETAPA 2: Roleta de Desempate (se houver mais de um) ---
-    elif st.session_state[fase_key] == 2:
-        gols_a, gols_b = st.session_state[f"bolao_placar_{jogo_id}"]
-        acertadores = st.session_state[f"bolao_acertadores_{jogo_id}"]
-        
-        st.success(f"**Resultado Real:** {time_a} {gols_a} x {gols_b} {time_b}")
-        
-        # Caso 1: Apenas 1 ganhador (Pula a roleta)
-        if len(acertadores) == 1:
-            st.balloons()
-            vencedor_unico = acertadores[0]
-            st.markdown("### 🎯 Acerto Único!")
-            st.write(f"Incrível! Apenas o usuário **{vencedor_unico['nome']}** cravou este resultado!")
-            st.session_state[f"bolao_vencedor_final_{jogo_id}"] = vencedor_unico
-            
-            if st.button("Avançar para Premiação", type="primary", use_container_width=True):
-                st.session_state[fase_key] = 3
-                st.rerun()
-                
-        # Caso 2: Empate (Inicia a Roleta de Sorteio)
-        else:
-            st.markdown("### 🚨 Empate!")
-            st.write(f"Tivemos **{len(acertadores)} usuários** que cravaram o placar exato. O vencedor será definido na sorte!")
-            
-            lista_nomes_disputa = [a['nome'] for a in acertadores]
-            st.markdown(f"**Na disputa:** {', '.join(lista_nomes_disputa)}")
-            
-            espaco_roleta = st.empty()
-            
-            col_b1, col_b2, col_b3 = st.columns([1, 2, 1])
-            if col_b2.button("🎰 GIRAR ROLETA", type="primary", use_container_width=True):
-                # Animação de giro super rápida que vai desacelerando
-                for i in range(25):
-                    nome_temp = random.choice(acertadores)['nome']
-                    espaco_roleta.markdown(f"""
-                    <div style='border: 3px solid #2F80ED; padding: 25px; text-align: center; border-radius: 15px; background: #f0f6ff;'>
-                        <h1 style='color: #003366; font-size: 30px; margin: 0;'>🎲 {nome_temp} 🎲</h1>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    time.sleep(max(0.05, i * 0.015)) 
-                
-                # Para em um campeão aleatório
-                vencedor_sorteado = random.choice(acertadores)
-                
-                espaco_roleta.markdown(f"""
-                    <div style='border: 4px solid #28a745; padding: 25px; text-align: center; border-radius: 15px; background: #f0fff4;'>
-                        <h2 style='color: #28a745; font-size: 20px; margin: 0;'>🏆 GRANDE CAMPEÃO(A) 🏆</h2>
-                        <h1 style='color: #155724; font-size: 35px; font-weight: 900; margin: 0;'>{vencedor_sorteado['nome']}</h1>
-                    </div>
-                    """, unsafe_allow_html=True)
-                st.balloons()
-                
-                # Salva o vencedor único sorteado e vai para a fase 3
-                st.session_state[f"bolao_vencedor_final_{jogo_id}"] = vencedor_sorteado
-                time.sleep(4) # Pausa dramática para gravação da tela
-                st.session_state[fase_key] = 3
-                st.rerun()
-
-    # --- ETAPA 3: Inserir prêmio e Disparar mensagens ---
-    elif st.session_state[fase_key] == 3:
-        vencedor_final = st.session_state[f"bolao_vencedor_final_{jogo_id}"]
-        gols_a, gols_b = st.session_state[f"bolao_placar_{jogo_id}"]
-        
-        st.markdown(f"### 👑 Vencedor: {vencedor_final['nome']}")
-        pontos_premio = st.number_input("Prêmio (Pontos Lojinha):", min_value=0, step=50, value=200)
-        
-        if st.button("Confirmar e Premiar", type="primary", use_container_width=True):
-            # 1. Finaliza a partida no banco e registra o vencedor final do sorteio
-            with conn.session as s:
-                s.execute(text("UPDATE bolao_jogos SET gols_a = :ga, gols_b = :gb, status = 'Encerrada', vencedor_usuario = :vu WHERE id = :id"), 
-                          {"ga": gols_a, "gb": gols_b, "vu": vencedor_final['nome'], "id": int(jogo_id)})
-                
-                # 2. Distribui os pontos e gera a notificação no painel do usuário
-                s.execute(text("UPDATE usuarios SET saldo = saldo + :p, pontos_historico = COALESCE(pontos_historico, 0) + :p WHERE LOWER(usuario) = LOWER(:u)"), 
-                          {"p": float(pontos_premio), "u": vencedor_final['usuario']})
-                
-                s.execute(text("INSERT INTO vendas (data, usuario, item, valor, status, nome_real, telefone) VALUES (NOW(), :u, :item, 0, 'Liberado', :nr, :t)"),
-                          {"u": vencedor_final['usuario'], "item": f"Vencedor Bolão: {time_a} x {time_b}", "nr": vencedor_final['nome'], "t": ""})
-                s.commit()
-                
-            # 3. Dispara as mensagens no Infobip
-            u_info = run_query("SELECT telefone FROM usuarios WHERE LOWER(usuario) = LOWER(:u)", {"u": vencedor_final['usuario']}, ttl=0)
-            if not u_info.empty:
-                tel_v = str(u_info.iloc[0]['telefone'])
-                msg_sms = f"Culli Copa: GOLAAACO! {vencedor_final['nome']}, voce cravou o placar do Bolao e faturou {pontos_premio} pts! Confira na Lojinha."
-                enviar_sms(tel_v, msg_sms)
-                enviar_whatsapp_template(tel_v, [vencedor_final['nome'], f"Bolão Copa: {time_a} x {time_b}", f"Parabéns! Você ganhou +{pontos_premio} pts!"], "atualizar_envio_pedidos")
-                
-            # Limpeza do sistema
-            st.cache_data.clear()
-            del st.session_state[fase_key]
-            del st.session_state[f"bolao_vencedor_final_{jogo_id}"]
-            
-            st.success("Prêmio distribuído e partida encerrada com sucesso!")
-            time.sleep(2)
-            st.rerun()
-
 @st.dialog("🎉 TEMOS UM VENCEDOR!")
 def mostrar_vencedor_dialog(nome_vencedor, usuario_vencedor, nome_premio, imagem_premio):
     st.balloons()
@@ -839,8 +672,7 @@ def tela_login():
                             'valor_ponto_usuario': dados.get('valor_ponto', 0.50), 
                             'em_verificacao_2fa': False, 
                             'dados_usuario_temp': {},
-                            'lgpd_pendente': not tem_lgpd,
-                            'acesso_bolao': dados['acesso_bolao']
+                            'lgpd_pendente': not tem_lgpd
                         })
                         criar_sessao_persistente(dados['id']); st.rerun()
                     else: st.error("Código incorreto. Tente novamente.")
@@ -851,7 +683,7 @@ def tela_login():
                 u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
                 st.write("") 
                 if st.form_submit_button("ENTRAR", type="primary", use_container_width=True):
-                    ok, n, t, sld, tel_completo, uid, v_ponto, tem_lgpd, ac_bolao = validar_login(u, s)
+                    ok, n, t, sld, tel_completo, uid, v_ponto, tem_lgpd = validar_login(u, s)
                     if ok:
                         codigo = str(random.randint(100000, 999999))
                         msg_2fa = f"Seu codigo de acesso Culli: {codigo}"
@@ -860,7 +692,7 @@ def tela_login():
                             st.session_state.em_verificacao_2fa = True
                             st.session_state.codigo_2fa_esperado = codigo
                             
-                            st.session_state.dados_usuario_temp = {'usuario': u.strip(), 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo, 'id': uid, 'valor_ponto': v_ponto, 'acesso_bolao': ac_bolao}
+                            st.session_state.dados_usuario_temp = {'usuario': u.strip(), 'nome': n, 'tipo': t, 'saldo': sld, 'telefone': tel_completo, 'id': uid, 'valor_ponto': v_ponto}
                             
                             st.session_state['temp_lgpd_status'] = tem_lgpd 
                             st.rerun()
@@ -874,7 +706,7 @@ def tela_login():
 
 def tela_admin():
     st.subheader("🛠️ Painel Admin")
-    t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs", "🎟️ Sorteio", "⚽ Painel Bolão Copa"])
+    t1, t2, t3, t4, t5 = st.tabs(["📊 Entregas & WhatsApp", "👥 Usuários & Saldos", "🎁 Prêmios", "🛠️ Logs", "🎟️ Sorteio"])
     
     with t1:
         df_v = run_query("SELECT * FROM vendas ORDER BY id DESC")
@@ -927,22 +759,21 @@ def tela_admin():
                 bal = c_n1.number_input("Saldo", step=100.0); tp = c_n2.selectbox("Tipo", ["comum", "admin", "staff", "supervisor"]); vp = c_n1.number_input("Valor do Ponto (R$)", value=0.50, step=0.01)
                 
                 lgpd = st.checkbox("Forçar aceite LGPD? (Deixe vazio para o usuário aceitar no login)", value=False)
-                bolao_check = st.checkbox("Liberar acesso à nova aba Bolão Copa para este usuário?", value=False)
                 
                 if st.form_submit_button("Cadastrar"):
-                    ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp, lgpd, bolao_check)
+                    ok, msg = cadastrar_novo_usuario(u, s, n, bal, tp, t, vp, lgpd)
                     if ok: st.cache_data.clear(); modal_sucesso_salvamento(f"Novo usuário cadastrado: {u}"); 
                     else: st.error(msg)
             
             st.markdown("---")
             st.markdown("##### 📥 Cadastro em Lote via Excel")
-            st.info("O arquivo .xlsx deve conter exatamente as colunas: **usuario, senha, nome, saldo, tipo, telefone, valor_ponto, consentimento_lgpd, acesso_bolao**")
+            st.info("O arquivo .xlsx deve conter exatamente as colunas: **usuario, senha, nome, saldo, tipo, telefone, valor_ponto, consentimento_lgpd**")
             arquivo_excel = st.file_uploader("Upload de Planilha", type=["xlsx"], key="up_users")
             if arquivo_excel:
                 if st.button("🚀 Processar Cadastros", type="primary"):
                     try:
                         df_upload = pd.read_excel(arquivo_excel)
-                        colunas_req = ['usuario', 'senha', 'nome', 'saldo', 'tipo', 'telefone', 'valor_ponto', 'consentimento_lgpd', 'acesso_bolao']
+                        colunas_req = ['usuario', 'senha', 'nome', 'saldo', 'tipo', 'telefone', 'valor_ponto', 'consentimento_lgpd']
                         
                         if not all(col in df_upload.columns for col in colunas_req):
                             st.error(f"O arquivo deve conter exatamente as colunas: {', '.join(colunas_req)}")
@@ -961,14 +792,13 @@ def tela_admin():
                                 tel_val = str(row['telefone']).strip()
                                 vp_val = float(row['valor_ponto']) if pd.notna(row['valor_ponto']) else 0.50
                                 lgpd_val = bool(row['consentimento_lgpd']) if pd.notna(row['consentimento_lgpd']) else False
-                                bolao_val = bool(row['acesso_bolao']) if pd.notna(row['acesso_bolao']) else False
                                 
                                 # Pula linhas totalmente vazias baseadas no usuário
                                 if u_val.lower() == 'nan' or u_val == '':
                                     tot -= 1
                                     continue
                                 
-                                ok, msg = cadastrar_novo_usuario(u_val, s_val, n_val, bal_val, t_val, tel_val, vp_val, lgpd_val, bolao_val)
+                                ok, msg = cadastrar_novo_usuario(u_val, s_val, n_val, bal_val, t_val, tel_val, vp_val, lgpd_val)
                                 if ok:
                                     sucessos += 1
                                 else:
@@ -997,8 +827,9 @@ def tela_admin():
                 
         st.divider(); df_u = run_query("SELECT * FROM usuarios ORDER BY id") 
         if not df_u.empty:
+            if "acesso_bolao" in df_u.columns: df_u = df_u.drop(columns=["acesso_bolao"])
             if "Notificar" not in df_u.columns: df_u.insert(0, "Notificar", False)
-            edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff", "supervisor"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f"), "consentimento_lgpd": st.column_config.CheckboxColumn("LGPD?", disabled=True), "acesso_bolao": st.column_config.CheckboxColumn("Acesso Bolão?", default=False)})
+            edit_u = st.data_editor(df_u, use_container_width=True, key="ed_u", column_config={"Notificar": st.column_config.CheckboxColumn("Avisar?", default=False), "saldo": st.column_config.NumberColumn("Saldo (Gastar)", help="Dinheiro na carteira agora"), "pontos_historico": st.column_config.NumberColumn("Ranking (Total)", help="Total acumulado na vida (não zera)"), "tipo": st.column_config.SelectboxColumn("Tipo de Conta", options=["comum", "admin", "staff", "supervisor"], required=True), "valor_ponto": st.column_config.NumberColumn("Valor Ponto (R$)", format="%.2f"), "consentimento_lgpd": st.column_config.CheckboxColumn("LGPD?", disabled=True)})
             
             st.markdown("<br>", unsafe_allow_html=True)
             c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
@@ -1009,7 +840,7 @@ def tela_admin():
                         with conn.session as s:
                             for i, row in edit_u.iterrows():
                                 v_ponto_salvar = float(row.get('valor_ponto', 0.50) or 0.50)
-                                s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp, valor_ponto=:vp, acesso_bolao=:ab WHERE id=:id"), {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": str(row['telefone']), "n": str(row['nome']), "tp": str(row['tipo']), "vp": v_ponto_salvar, "ab": bool(row['acesso_bolao']), "id": int(row['id'])})
+                                s.execute(text("UPDATE usuarios SET saldo=:s, pontos_historico=:ph, telefone=:t, nome=:n, tipo=:tp, valor_ponto=:vp WHERE id=:id"), {"s": float(row['saldo']), "ph": float(row['pontos_historico']), "t": str(row['telefone']), "n": str(row['nome']), "tp": str(row['tipo']), "vp": v_ponto_salvar, "id": int(row['id'])})
                             s.commit()
                         registrar_log("Admin", "Editou usuários na tabela"); modal_sucesso_salvamento(f"Tabela Usuários salva. {len(edit_u)} registros.")
                     except Exception as e: st.error(f"Erro ao salvar: {e}")
@@ -1114,55 +945,6 @@ def tela_admin():
                 st.cache_data.clear()
                 st.success("Sorteio Criado!"); st.rerun()
 
-    with t6:
-        st.markdown("### ⚽ Painel de Controle do Bolão Copa")
-        cb1, cb2 = st.columns([1, 2])
-        with cb1:
-            st.markdown("##### ➕ Novo Jogo")
-            with st.form("f_nj", clear_on_submit=True):
-                ta = st.text_input("Time A"); tb = st.text_input("Time B"); dj = st.date_input("Data"); hj = st.time_input("Horário")
-                if st.form_submit_button("Gerar Bolão") and ta and tb:
-                    run_transaction("INSERT INTO bolao_jogos (time_a, time_b, data_jogo) VALUES (:ta, :tb, :dt)", {"ta": ta, "tb": tb, "dt": datetime.combine(dj, hj)}); st.cache_data.clear(); st.success("Criado!"); time.sleep(1); st.rerun()
-        with cb2:
-            st.markdown("##### 🎲 Encerrar e Premiar Jogos")
-            ja = run_query("SELECT id, time_a, time_b, data_jogo FROM bolao_jogos WHERE status = 'Aberto' ORDER BY data_jogo ASC", ttl=0)
-            if not ja.empty:
-                op_j = {f"{row['time_a']} x {row['time_b']} ({row['data_jogo'].strftime('%d/%m %H:%M')})": row['id'] for _, row in ja.iterrows()}
-                jsel = st.selectbox("Selecione o jogo para encerrar:", list(op_j.keys()))
-                if st.button("Apurar Vencedor", type="primary"):
-                    p_df = ja[ja['id'] == op_j[jsel]].iloc[0]
-                    finalizar_bolao_dialog(op_j[jsel], p_df['time_a'], p_df['time_b'])
-            else: st.info("Nenhum bolão aguardando encerramento.")
-            
-            st.divider()
-            with st.expander("👀 Ver Palpites dos Usuários"):
-                todos_jogos = run_query("SELECT id, time_a, time_b, data_jogo, status FROM bolao_jogos ORDER BY data_jogo DESC", ttl=0)
-                if not todos_jogos.empty:
-                    op_tj = {f"{row['time_a']} x {row['time_b']} ({row['status']})": row['id'] for _, row in todos_jogos.iterrows()}
-                    tj_sel = st.selectbox("Selecione o jogo para ver os palpites:", list(op_tj.keys()), key="sel_palpites")
-                    id_jogo_sel = op_tj[tj_sel]
-
-                    palpites = run_query("""
-                        SELECT a.usuario, u.nome, a.gols_a, a.gols_b
-                        FROM bolao_apostas a
-                        LEFT JOIN usuarios u ON LOWER(a.usuario) = LOWER(u.usuario)
-                        WHERE a.jogo_id = :jid
-                        ORDER BY u.nome ASC
-                    """, {"jid": int(id_jogo_sel)}, ttl=0)
-
-                    if not palpites.empty:
-                        palpites = palpites.rename(columns={"usuario": "Login", "nome": "Nome", "gols_a": "Gols Time A", "gols_b": "Gols Time B"})
-                        st.dataframe(palpites, use_container_width=True, hide_index=True)
-                        st.caption(f"Total de palpites: {len(palpites)}")
-                    else:
-                        st.info("Nenhum palpite registrado para este jogo ainda.")
-                else:
-                    st.info("Nenhum jogo cadastrado.")
-            
-            st.divider(); st.markdown("##### 📜 Histórico de Jogos Finalizados")
-            jf = run_query("SELECT id, time_a, gols_a, gols_b, time_b, vencedor_usuario as Ganhador FROM bolao_jogos WHERE status = 'Encerrada' ORDER BY id DESC")
-            if not jf.empty: st.dataframe(jf, use_container_width=True, hide_index=True)
-
 def tela_supervisor():
     st.subheader("📦 Visão Geral de Todos os Resgates")
     df_v = run_query("SELECT id, data, usuario, nome_real, item, valor, status, telefone, email, codigo_vale, recebido_user FROM vendas ORDER BY id DESC")
@@ -1256,11 +1038,7 @@ def tela_principal():
         elif tipo == 'supervisor' and st.session_state.supervisor_mode: 
             tela_supervisor()
         else:
-            # ORGANIZAÇÃO DINÂMICA DAS ABAS BASEADO NO PERMISSIVO DO BOLÃO DO USUÁRIO
             abas_nome = ["🎁 Catálogo", "🍀 Sorteio", "📜 Meus Resgates", "🏆 Ranking"]
-            if st.session_state.get('acesso_bolao', False):
-                abas_nome.insert(2, "⚽ Bolão Copa")
-                
             abas = st.tabs(abas_nome)
             
             with abas[abas_nome.index("🎁 Catálogo")]:
@@ -1295,60 +1073,6 @@ def tela_principal():
                     if st.button(f"🎟️ COMPRAR TICKET ({r['custo_ticket']} pts)", type="primary"): confirmar_compra_ticket(int(r['id']), r['custo_ticket'], u_cod)
                 else: st.info("Nenhum sorteio ativo no momento.")
                 
-            if st.session_state.get('acesso_bolao', False):
-                with abas[abas_nome.index("⚽ Bolão Copa")]:
-                    with st.expander("📖 Entenda as Regras da Premiação (Clique para expandir)"):
-                        st.markdown("""
-                        No nosso Bolão, a regra é simples e direta: **Só leva o prêmio quem CRAVAR o placar exato do jogo!**
-                        
-                        * Se você apostou 2x1 e o jogo for 2x1, você ganha! 
-                        * Se você apostou 2x1 e o jogo for 3x1 (mesmo você tendo acertado quem venceria), não pontua nesta rodada.
-                        
-                        **Desempate:**
-                        Se mais de uma pessoa acertar o placar em cheio, o sistema realizará um **sorteio automático** (uma verdadeira roleta da sorte) para definir o grande campeão único da rodada. Que os jogos comecem!
-                        """)
-                    
-                    st.markdown("### Seus Palpites")
-                    jogos_ativos = run_query("SELECT * FROM bolao_jogos WHERE status = 'Aberto' AND data_jogo > NOW() ORDER BY data_jogo ASC", ttl=0)
-                    if not jogos_ativos.empty:
-                        col_jogos = st.columns(3)
-                        for i, (_, jogo) in enumerate(jogos_ativos.iterrows()):
-                            jid = int(jogo['id'])
-                            with col_jogos[i % 3]:
-                                st.markdown(f"<div class='bolao-card'><div class='bolao-tag'>PARTIDA AGENDADA</div><h4>{jogo['time_a']} x {jogo['time_b']}</h4><p style='font-size:11px;'>📅 {jogo['data_jogo'].strftime('%d/%m/%Y %H:%M')}</p></div>", unsafe_allow_html=True)
-                                
-                                aposta_ex = run_query("SELECT gols_a, gols_b FROM bolao_apostas WHERE jogo_id = :jid AND usuario = :u", {"jid": jid, "u": u_cod}, ttl=0)
-                                if not aposta_ex.empty:
-                                    pa, pb = int(aposta_ex.iloc[0]['gols_a']), int(aposta_ex.iloc[0]['gols_b'])
-                                    st.info(f"⚽ Seu palpite: **{pa} x {pb}**")
-                                    st.caption("🔒 Registrado. Não é possível alterar.")
-                                else:
-                                    ca, cb = st.columns(2)
-                                    ga = ca.number_input(f"{jogo['time_a']}", min_value=0, step=1, key=f"ga_{jid}")
-                                    gb = cb.number_input(f"{jogo['time_b']}", min_value=0, step=1, key=f"gb_{jid}")
-                                    if st.button("Confirmar Palpite", key=f"bp_{jid}", type="secondary"):
-                                        run_transaction("INSERT INTO bolao_apostas (jogo_id, usuario, gols_a, gols_b) VALUES (:jid, :u, :ga, :gb)", {"jid": jid, "u": u_cod, "ga": ga, "gb": gb})
-                                        st.cache_data.clear(); st.rerun()
-                    else: st.info("Nenhum confronto disponível para apostar.")
-                    
-                    st.divider()
-                    st.markdown("### 🏆 Hall da Fama dos Bolões")
-                    jogos_encerrados = run_query("SELECT time_a, time_b, gols_a, gols_b, vencedor_usuario, data_jogo FROM bolao_jogos WHERE status = 'Encerrada' ORDER BY id DESC")
-                    
-                    if not jogos_encerrados.empty:
-                        cols_hf = st.columns(3)
-                        for i, (_, row) in enumerate(jogos_encerrados.iterrows()):
-                            with cols_hf[i % 3]:
-                                st.markdown(f"""
-                                <div class="winner-card" style="padding: 15px; margin-bottom: 15px;">
-                                    <div class="winner-tag" style="font-size: 10px;">ENCERRADO</div>
-                                    <h4 style="margin:5px 0; color:#333;">{row['time_a']} {row['gols_a']} x {row['gols_b']} {row['time_b']}</h4>
-                                    <p style="font-size:13px; color:#28a745; font-weight:bold; margin-top:5px; margin-bottom:0;">👑 Vencedor:<br>{row['vencedor_usuario']}</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-                    else:
-                        st.info("Nenhum bolão foi finalizado ainda. O Hall da Fama aguarda seus primeiros campeões!")
-            
             with abas[abas_nome.index("📜 Meus Resgates")]:
                 st.info("### 📜 Acompanhamento\nPedido recebido! Prazo: **5 dias úteis** no seu Whatsapp informado no momento do resgate!.")
                 meus_pedidos = run_query("SELECT id, data, item, valor, status, codigo_vale, recebido_user FROM vendas WHERE LOWER(usuario) = LOWER(:u) ORDER BY data DESC", {"u": u_cod})
