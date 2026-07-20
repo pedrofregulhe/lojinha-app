@@ -756,30 +756,53 @@ def processar_envios_dialog(df_selecionados, tipo_envio="vendas"):
             return
 
         logs_envio = []
-        progress_bar = st.progress(0); status_text = st.empty(); total = len(df_selecionados)
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        total = len(df_selecionados)
         
         for i, (index, row) in enumerate(df_selecionados.iterrows()):
             status_text.text(f"Processando {i+1}/{total}: {row.get('nome', '')}...")
             tel = str(row['telefone'])
-            if tipo_envio == "vendas": nome = str(row['nome_real'] or row['usuario']); var1 = str(row['item']); var2 = str(row['codigo_vale'])
-            else: nome = str(row['nome']); var1 = f"{float(row['saldo']):,.0f}"; var2 = ""
+            
+            # Separação clara das variáveis por tipo de envio
+            if tipo_envio == "vendas": 
+                nome = str(row['nome_real'] or row['usuario'])
+                var1 = str(row['item'])
+                var2 = str(row['codigo_vale'])
+            else: 
+                nome = str(row['nome'])
+                # Convertido para int para remover formatações com vírgula/ponto que o Infobip pode rejeitar
+                var1 = str(int(float(row['saldo']))) 
+                var2 = ""
             
             if usar_zap:
                 if len(formatar_telefone(tel)) >= 12:
-                    ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos") if tipo_envio == "vendas" else enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos_lojinha")
+                    # Lógica de disparo isolada para garantir que o template correto seja chamado
+                    if tipo_envio == "vendas":
+                        ok, det, cod = enviar_whatsapp_template(tel, [nome, var1, var2], "atualizar_envio_pedidos")
+                    else:
+                        ok, det, cod = enviar_whatsapp_template(tel, [nome, var1], "atualizar_saldo_pedidos_lojinha")
+                        
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
-                else: logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
+                else: 
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "WhatsApp", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
             
             if usar_sms:
                 if len(formatar_telefone(tel)) >= 12:
-                    texto = f"Olá {nome}, seu resgate de {var1} foi liberado! Cód: {var2}." if tipo_envio == "vendas" else f"Lojinha Culli: Olá {nome}, sua pontuação foi atualizada e seu saldo atual é de {var1}. Acesse o site e realize a troca dos pontos: https://lojinha-culligan.streamlit.app/"
+                    if tipo_envio == "vendas":
+                        texto = f"Olá {nome}, seu resgate de {var1} foi liberado! Cód: {var2}."
+                    else:
+                        texto = f"Lojinha Culli: Olá {nome}, sua pontuação foi atualizada e seu saldo atual é de {var1}. Acesse o site e realize a troca: https://lojinha-culligan.streamlit.app/"
+                        
                     ok, det, cod = enviar_sms(tel, texto)
                     logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "✅ OK" if ok else "❌ Erro", "Detalhe API": det})
-                else: logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
+                else: 
+                    logs_envio.append({"Nome": nome, "Tel": tel, "Canal": "SMS", "Status": "⚠️ Ignorado", "Detalhe API": "Número Inválido"})
             
             progress_bar.progress((i + 1) / total)
         
-        progress_bar.empty(); status_text.success("Processamento Finalizado!")
+        progress_bar.empty()
+        status_text.success("Processamento Finalizado!")
         sucessos = len([x for x in logs_envio if "OK" in x['Status']])
         
         c1, c2 = st.columns(2)
