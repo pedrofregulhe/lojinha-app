@@ -210,8 +210,8 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_sald
         tel_final = formatar_telefone(telefone)
         if len(tel_final) < 12: return False, f"Número inválido: {tel_final}", "CLIENT_ERROR"
         # Idioma deve bater EXATAMENTE com o registrado no Infobip para cada template:
-        # "Portuguese (POR)" = "pt" | "Portuguese Brazil" = "pt_BR"
-        idiomas_por_template = { "atualizar_saldo_pedidos_lojinha": "pt" }
+        # "Portuguese (POR)" = "pt_PT" | "Portuguese Brazil" = "pt_BR"
+        idiomas_por_template = { "atualizar_saldo_pedidos_lojinha": "pt_PT" }
         idioma = idiomas_por_template.get(nome_template, "pt_BR")
         payload = { "messages": [ { "from": sender, "to": tel_final, "content": { "templateName": nome_template, "templateData": { "body": { "placeholders": [str(p) for p in parametros] } }, "language": idioma } } ] }
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
