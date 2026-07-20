@@ -233,7 +233,7 @@ def enviar_sms(telefone, mensagem_texto):
         return True, "SMS Enviado", str(response.status_code)
     except Exception as e: return False, f"Erro SMS Exception: {str(e)}", "EXCEPTION"
 
-def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_envio_pedidos"):
+def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_saldo_pedidos_lojinha"):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
@@ -883,7 +883,7 @@ def tela_admin():
                     
     with t2:
         with st.expander("💎 Configurar Valor do Ponto Individualizado"):
-            df_users_list = run_query("SELECT id, usuario, nome, valor_ponto FROM usuarios ORDER BY nome")
+            df_users_list = run_query("SELECT id, usuario, nome, valor_ponto FROM ORDER BY nome")
             if not df_users_list.empty:
                 opcoes_user = {f"{row['nome']} ({row['usuario']})": row['id'] for i, row in df_users_list.iterrows()}
                 user_selecionado_chave = st.selectbox("Selecione o Usuário:", list(opcoes_user.keys()))
