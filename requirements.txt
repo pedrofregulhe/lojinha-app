@@ -5,3 +5,4 @@ requests
 sqlalchemy
 psycopg2-binary
 openpyxl
+starlette<1.4.0
