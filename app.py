@@ -544,6 +544,10 @@ def tela_nova_senha_token(token_url):
         st.error(f"Erro ao validar token: {e}")
 
 # --- AGRUPAMENTO DE VALES POR MARCA ---
+# Marcas fixadas no início do catálogo, na ordem em que aparecem nesta lista.
+# As demais seguem a ordem de id do banco.
+MARCAS_DESTAQUE = ["IFOOD VIRTUAL"]
+
 def separar_marca_valor(nome_item):
     """Divide 'UBER R$ 50,00' em ('UBER', 50.0).
 
@@ -1127,8 +1131,10 @@ def tela_principal():
                             g = grupos.setdefault(chave, {"marca": marca, "imagem": row['imagem'], "descricao": row.get('descricao', ''), "variacoes": []})
                             g["variacoes"].append({"id": int(row['id']), "item": row['item'], "valor": valor,
                                                    "custo": int(row['custo'] * (valor_padrao_ponto / valor_ponto_usuario))})
+                        # sorted é estável: as marcas em destaque sobem e o resto mantém a ordem de id.
+                        ordenados = sorted(grupos.values(), key=lambda g: MARCAS_DESTAQUE.index(g["marca"]) if g["marca"] in MARCAS_DESTAQUE else len(MARCAS_DESTAQUE))
                         cols_cat = st.columns(4)
-                        for i, g in enumerate(grupos.values()):
+                        for i, g in enumerate(ordenados):
                             variacoes = sorted(g["variacoes"], key=lambda v: v["custo"])
                             menor = variacoes[0]
                             with cols_cat[i % 4]:
