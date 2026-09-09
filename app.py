@@ -201,7 +201,7 @@ def enviar_sms(telefone, mensagem_texto):
         return True, "SMS Enviado", str(response.status_code)
     except Exception as e: return False, f"Erro SMS Exception: {str(e)}", "EXCEPTION"
 
-def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_saldo_pedidos_lojinha"):
+def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_saldo_pedidos_lojinha", botoes=None):
     try:
         base_url = st.secrets["INFOBIP_BASE_URL"].rstrip('/')
         api_key = st.secrets["INFOBIP_API_KEY"]
@@ -211,9 +211,14 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_sald
         if len(tel_final) < 12: return False, f"Número inválido: {tel_final}", "CLIENT_ERROR"
         # Idioma deve bater EXATAMENTE com o registrado no Infobip para cada template:
         # "Portuguese (POR)" = "pt_PT" | "Portuguese Brazil" = "pt_BR"
-        idiomas_por_template = { "atualizar_saldo_pedidos_lojinha": "pt_PT" }
+        idiomas_por_template = { "atualizar_saldo_pedidos_lojinha": "pt_PT", "nps_acesso": "pt_BR" }
         idioma = idiomas_por_template.get(nome_template, "pt_BR")
-        payload = { "messages": [ { "from": sender, "to": tel_final, "content": { "templateName": nome_template, "templateData": { "body": { "placeholders": [str(p) for p in parametros] } }, "language": idioma } } ] }
+        template_data = { "body": { "placeholders": [str(p) for p in parametros] } }
+        # Templates com botões dinâmicos (ex.: nps_acesso) exigem a lista "buttons" na MESMA
+        # ordem em que os botões aparecem no template aprovado dentro da Infobip.
+        if botoes:
+            template_data["buttons"] = [ { "type": b["type"], "parameter": str(b["parameter"]) } for b in botoes ]
+        payload = { "messages": [ { "from": sender, "to": tel_final, "content": { "templateName": nome_template, "templateData": template_data, "language": idioma } } ] }
         headers = { "Authorization": f"App {api_key}", "Content-Type": "application/json", "Accept": "application/json" }
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code not in [200, 201]: return False, f"Erro API {response.status_code}: {response.text}", str(response.status_code)
@@ -230,6 +235,21 @@ def enviar_whatsapp_template(telefone, parametros, nome_template="atualizar_sald
         except Exception:
             return True, "Enviado (status do corpo não verificado)", str(response.status_code)
     except Exception as e: return False, f"Erro Conexão: {str(e)}", "EXCEPTION"
+
+# Template HSM (WhatsApp) usado no 2FA de login, em substituição ao antigo SMS.
+TEMPLATE_2FA = "nps_acesso"
+
+def enviar_codigo_2fa(telefone, codigo):
+    """Envia o código de acesso de 6 dígitos via HSM (template WhatsApp) da Infobip."""
+    return enviar_whatsapp_template(
+        telefone,
+        [codigo],                                       # {{1}} do corpo = código de 6 dígitos
+        TEMPLATE_2FA,
+        botoes=[
+            {"type": "URL", "parameter": codigo},         # sufixo dinâmico da URL do botão
+            {"type": "QUICK_REPLY", "parameter": codigo}, # payload devolvido no clique
+        ],
+    )
 
 # --- BANCO DE DADOS ---
 def run_query(query_str, params=None, ttl="5m"):
@@ -656,8 +676,8 @@ def tela_login():
         st.write("") 
         if st.session_state.get('em_verificacao_2fa', False):
             with st.form("f_2fa"):
-                st.markdown("""<div style="text-align: center; margin-bottom: 20px;"><h2 style="color: #003366;">🔒 Segurança</h2><p>Enviamos um código SMS para o final <b>...{}</b></p></div>""".format(str(st.session_state.dados_usuario_temp.get('telefone', ''))[-4:]), unsafe_allow_html=True)
-                codigo_digitado = st.text_input("Digite o Código de 6 dígitos", max_chars=6, help="Verifique seu SMS")
+                st.markdown("""<div style="text-align: center; margin-bottom: 20px;"><h2 style="color: #003366;">🔒 Segurança</h2><p>Enviamos um código por WhatsApp para o final <b>...{}</b></p></div>""".format(str(st.session_state.dados_usuario_temp.get('telefone', ''))[-4:]), unsafe_allow_html=True)
+                codigo_digitado = st.text_input("Digite o Código de 6 dígitos", max_chars=6, help="Verifique seu WhatsApp")
                 if st.form_submit_button("VALIDAR ACESSO", type="primary", use_container_width=True):
                     if codigo_digitado == st.session_state.codigo_2fa_esperado:
                         dados = st.session_state.dados_usuario_temp
@@ -686,8 +706,7 @@ def tela_login():
                     ok, n, t, sld, tel_completo, uid, v_ponto, tem_lgpd = validar_login(u, s)
                     if ok:
                         codigo = str(random.randint(100000, 999999))
-                        msg_2fa = f"Seu codigo de acesso Culli: {codigo}"
-                        enviou, info, _ = enviar_sms(tel_completo, msg_2fa)
+                        enviou, info, _ = enviar_codigo_2fa(tel_completo, codigo)
                         if enviou:
                             st.session_state.em_verificacao_2fa = True
                             st.session_state.codigo_2fa_esperado = codigo
@@ -696,7 +715,7 @@ def tela_login():
                             
                             st.session_state['temp_lgpd_status'] = tem_lgpd 
                             st.rerun()
-                        else: st.error(f"Erro no envio do SMS: {info}. Verifique se o telefone está correto no cadastro.")
+                        else: st.error(f"Erro no envio do WhatsApp: {info}. Verifique se o telefone está correto no cadastro.")
                     else: st.toast("Usuário ou senha incorretos", icon="❌")
             st.write(""); c_esqueceu, c_primeiro = st.columns(2)
             with c_esqueceu:
