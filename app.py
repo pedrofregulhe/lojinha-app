@@ -543,8 +543,54 @@ def tela_nova_senha_token(token_url):
     except Exception as e:
         st.error(f"Erro ao validar token: {e}")
 
+# --- AGRUPAMENTO DE VALES POR MARCA ---
+def separar_marca_valor(nome_item):
+    """Divide 'UBER R$ 50,00' em ('UBER', 50.0).
+
+    Itens sem valor em reais (ex.: CINEMARK VIRTUAL 2D) voltam como (nome, None)
+    e continuam aparecendo como um card próprio no catálogo.
+    """
+    nome_item = str(nome_item or "")
+    m = re.search(r"R\$\s*([\d.,]+)", nome_item)
+    if not m:
+        return nome_item.strip(), None
+    bruto = m.group(1).strip().rstrip(".,")
+    try:
+        # "1.500,00" -> 1500.00 | "50,00" -> 50.00
+        valor = float(bruto.replace(".", "").replace(",", "."))
+    except ValueError:
+        return nome_item.strip(), None
+    marca = (nome_item[:m.start()] + nome_item[m.end():]).strip()
+    return re.sub(r"\s{2,}", " ", marca), valor
+
+def formatar_valor_vale(variacao):
+    """Rótulo amigável de uma variação: 'R$ 50,00' ou o próprio nome do item."""
+    if variacao.get("valor") is None:
+        return variacao["item"]
+    return ("R$ " + format(variacao["valor"], ",.2f")).replace(",", "X").replace(".", ",").replace("X", ".")
+
 @st.dialog("🎁 Confirmar Resgate")
-def confirmar_resgate_dialog(item_nome, custo, usuario_cod):
+def confirmar_resgate_dialog(marca, variacoes, usuario_cod, saldo):
+    # Só entram na lista os valores que o saldo atual já cobre.
+    ordenadas = sorted(variacoes, key=lambda x: x["custo"])
+    disponiveis = [v for v in ordenadas if saldo >= v["custo"]]
+    bloqueados = [v for v in ordenadas if saldo < v["custo"]]
+
+    if not disponiveis:
+        st.error("Você ainda não tem saldo suficiente para resgatar este prêmio.")
+        return
+
+    if len(disponiveis) > 1:
+        rotulos = {f"{formatar_valor_vale(v)}  -  {v['custo']} pts": v for v in disponiveis}
+        escolha = st.selectbox(f"Escolha o valor do vale {marca}:", list(rotulos.keys()))
+        item_escolhido = rotulos[escolha]
+    else:
+        item_escolhido = disponiveis[0]
+
+    if bloqueados:
+        st.caption("Valores maiores (" + ", ".join(formatar_valor_vale(v) for v in bloqueados) + ") liberam conforme seu saldo aumenta.")
+
+    item_nome, custo = item_escolhido["item"], item_escolhido["custo"]
     st.write(f"Resgatando: **{item_nome}** por **{custo} pts**.")
     with st.form("form_resgate"):
         email = st.text_input("E-mail:", placeholder="exemplo@email.com")
@@ -575,10 +621,16 @@ def mostrar_vencedor_dialog(nome_vencedor, usuario_vencedor, nome_premio, imagem
     st.info("O prêmio já foi adicionado aos seus pedidos.")
 
 @st.dialog("🔍 Detalhes do Produto")
-def ver_detalhes_produto(item, imagem, custo, descricao):
+def ver_detalhes_produto(item, imagem, custo, descricao, variacoes=None):
     st.image(processar_link_imagem(imagem), use_container_width=True)
     st.markdown(f"## {item}")
-    st.markdown(f"#### 💎 Valor: **{custo} pts**")
+    if variacoes and len(variacoes) > 1:
+        st.markdown("#### 💎 Valores disponíveis")
+        st.dataframe(
+            pd.DataFrame([{"Valor do vale": formatar_valor_vale(v), "Custo": f"{v['custo']} pts"} for v in variacoes]),
+            hide_index=True, use_container_width=True)
+    else:
+        st.markdown(f"#### 💎 Valor: **{custo} pts**")
     st.divider()
     st.write("### 📝 Descrição")
     if descricao and str(descricao).lower() != "none" and len(str(descricao)) > 3: st.write(descricao)
@@ -1067,18 +1119,29 @@ def tela_principal():
                     if busca: df_p = df_p[df_p['item'].str.contains(busca, case=False, na=False)]
                     if df_p.empty: st.warning("Nenhum produto encontrado.")
                     else:
+                        # Agrupa as variações de valor de uma mesma marca em um único card.
+                        grupos = {}
+                        for _, row in df_p.iterrows():
+                            marca, valor = separar_marca_valor(row['item'])
+                            chave = marca if valor is not None else "__" + str(row['item'])
+                            g = grupos.setdefault(chave, {"marca": marca, "imagem": row['imagem'], "descricao": row.get('descricao', ''), "variacoes": []})
+                            g["variacoes"].append({"id": int(row['id']), "item": row['item'], "valor": valor,
+                                                   "custo": int(row['custo'] * (valor_padrao_ponto / valor_ponto_usuario))})
                         cols_cat = st.columns(4)
-                        for i, (_, row) in enumerate(df_p.iterrows()):
+                        for i, g in enumerate(grupos.values()):
+                            variacoes = sorted(g["variacoes"], key=lambda v: v["custo"])
+                            menor = variacoes[0]
                             with cols_cat[i % 4]:
                                 with st.container(border=True):
-                                    if row['imagem']: st.image(processar_link_imagem(row['imagem']))
-                                    cst = int(row['custo'] * (valor_padrao_ponto / valor_ponto_usuario))
-                                    st.markdown(f"**{row['item']}**\n<br><div style='color:#0066cc; font-weight:bold;'>{cst} pts</div>", unsafe_allow_html=True)
+                                    if g['imagem']: st.image(processar_link_imagem(g['imagem']))
+                                    preco_txt = f"a partir de {menor['custo']} pts" if len(variacoes) > 1 else f"{menor['custo']} pts"
+                                    st.markdown(f"**{g['marca']}**\n<br><div style='color:#0066cc; font-weight:bold;'>{preco_txt}</div>", unsafe_allow_html=True)
                                     c_det, c_res = st.columns(2)
-                                    with c_det: 
-                                        if st.button("Detalhes", key=f"det_{row['id']}", use_container_width=True): ver_detalhes_produto(row['item'], row['imagem'], cst, row.get('descricao', ''))
-                                    with c_res: 
-                                        if sld >= cst and st.button("RESGATAR", key=f"b_{row['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(row['item'], cst, u_cod)
+                                    with c_det:
+                                        if st.button("Detalhes", key=f"det_{menor['id']}", use_container_width=True): ver_detalhes_produto(g['marca'], g['imagem'], menor['custo'], g['descricao'], variacoes)
+                                    with c_res:
+                                        # O botão só aparece se o saldo cobre ao menos o menor valor da marca.
+                                        if sld >= menor['custo'] and st.button("RESGATAR", key=f"b_{menor['id']}", type="primary", use_container_width=True): confirmar_resgate_dialog(g['marca'], variacoes, u_cod, sld)
                 else: st.info("Catálogo vazio.")
             
             with abas[abas_nome.index("🍀 Sorteio")]:
