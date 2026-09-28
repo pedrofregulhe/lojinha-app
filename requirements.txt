@@ -2,7 +2,7 @@ streamlit
 pandas
 bcrypt
 requests
-sqlalchemy
+sqlalchemy<2.1
 psycopg2-binary
 openpyxl
 starlette<1.4.0
